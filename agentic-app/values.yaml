@@ -1,0 +1,48 @@
+nameOverride: ""
+fullnameOverride: ""
+
+api:
+  replicaCount: 1
+  image:
+    repository: agent-api
+    tag: local
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8000
+  env:
+    MIGRATION_LLM_PROVIDER: openai
+    MIGRATION_LLM_MODEL: gpt-4o
+    MIGRATION_WORKSPACE_ROOT: /tmp/gitops-migration-workspaces
+    MIGRATION_EXAMPLES_ROOT: /examples
+  secretEnv:
+    OPENAI_API_KEY: ""
+    GOOGLE_API_KEY: ""
+    GITHUB_TOKEN: ""
+    GITHUB_WEBHOOK_SECRET: ""
+  existingSecret: ""
+  resources: {}
+
+ui:
+  replicaCount: 1
+  image:
+    repository: agent-ui
+    tag: local
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8501
+  env: {}
+  resources: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: agentic.local
+      paths:
+        - path: /
+          pathType: Prefix
+          service: ui
+  tls: []
