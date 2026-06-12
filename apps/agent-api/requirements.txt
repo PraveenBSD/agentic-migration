@@ -3,6 +3,7 @@ uvicorn[standard]>=0.30
 langchain-core>=0.2
 langchain-openai>=0.1
 langchain-google-genai>=2.1
+langchain-ollama>=0.2
 GitPython>=3.1
 PyGithub>=2.3
 PyYAML>=6.0

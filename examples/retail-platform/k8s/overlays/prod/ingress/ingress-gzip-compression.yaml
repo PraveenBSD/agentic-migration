@@ -1,21 +1,24 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: underscores-headers-ingress
+  name: gzip-compression-ingress
   namespace: default
   annotations:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/server-snippet: |
-      more_set_headers "X_CUSTOM_HEADER: yes";
+      gzip on;
+      gzip_comp_level 5;
+      gzip_min_length 1024;
+      gzip_types text/plain text/css application/json application/javascript application/xml;
 spec:
   rules:
-    - host: underscores.example.com
+    - host: assets.example.com
       http:
         paths:
-          - path: /headers
+          - path: /assets
             pathType: Prefix
             backend:
               service:
-                name: header-service
+                name: static-service
                 port:
                   number: 80

@@ -18,7 +18,16 @@ from .common import (
 
 @tool
 def convert_ingress(manifest_path: str, branch_name: str, overwrite_existing: bool = True) -> str:
-    """Convert Nginx Ingress manifests to Gateway API manifests inside an existing cloned repo."""
+    """Convert NGINX Ingress YAML manifests into Envoy Gateway / Gateway API YAML inside the cloned workspace.
+
+    Call this after clone_repo and before validate_yaml. This tool records the real path to validate as validation_path in run context. The next validate_yaml call should use that real validation_path, not an example or placeholder path.
+    Args:
+        manifest_path: Path to the Ingress file or directory relative to the cloned repository root, exactly like the user context path.
+        branch_name: The same migration branch originally passed to clone_repo.
+        overwrite_existing: If true, replace/copy generated Gateway API manifests into the source manifest path; if false, write separate generated files.
+    Returns:
+        Conversion logs and stores validation_path in run context for validate_yaml.
+    """
     context = get_run_context(branch_name)
     if not context:
         raise ValueError(f"No repository context found for branch {branch_name}")
@@ -52,4 +61,6 @@ def convert_ingress(manifest_path: str, branch_name: str, overwrite_existing: bo
         context["validation_path"] = str(source if source.is_dir() else source.parent)
 
     set_run_context(branch_name, context)
+    logs.append(f"validation_path={context['validation_path']}")
+    logs.append("Next: call validate_yaml with yaml_file_path set to validation_path.")
     return "\n".join(part for part in logs if part)

@@ -1,0 +1,1136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="slides-format" content="viewport">
+    <title>AI GitOps Agent: Ingress → Gateway Migration</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <style type="text/tailwindcss">
+        @theme {
+            --color-bg: #070d0a;
+            --color-bg-deep: #020705;
+            --color-surface: #0d1f14;
+            --color-text: #e2fce8;
+            --color-text-secondary: #a3d9af;
+            --color-text-muted: #5a8c66;
+            --color-accent-1: #00ff88;
+            --color-accent-2: #00e5ff;
+            --color-accent-3: #ff6b35;
+            --color-glass-bg: rgba(0,255,136,0.04);
+            --color-glass-border: rgba(0,255,136,0.12);
+            --color-vignette: rgba(0,0,0,0.5);
+            --font-display: 'JetBrains Mono', monospace;
+            --font-body: 'Inter', sans-serif;
+        }
+    </style>
+    <style>
+        :root {
+            --color-bg: #070d0a;
+            --color-text: #e2fce8;
+            --glow-color-rgb: 0,255,136;
+        }
+        *, *::before, *::after { box-sizing: border-box; }
+        html, body { background: var(--color-bg); margin: 0; }
+        body { font-family: 'Inter', sans-serif; color: var(--color-text); overflow: hidden; height: 100vh; width: 100vw; }
+        .deck { width: 100vw; height: 100vh; position: relative; }
+        .slide { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: var(--color-bg); display: flex; flex-direction: column; align-items: center; justify-content: center; opacity: 0; transform: scale(0.95); transition: opacity 0.7s ease, transform 0.7s ease; pointer-events: none; overflow: hidden; }
+        .slide.active { opacity: 1; transform: scale(1); pointer-events: all; }
+        .slide > .content { position: relative; z-index: 2; width: 100%; max-width: 1100px; padding: clamp(1.5rem, 4vw, 4rem); }
+        .nav-controls { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 16px; z-index: 100; background: rgba(0,255,136,0.04); backdrop-filter: blur(10px); padding: 10px 24px; border-radius: 40px; border: 1px solid rgba(0,255,136,0.12); }
+        .nav-btn { width: 40px; height: 40px; border: none; background: rgba(0,255,136,0.06); color: #00ff88; border-radius: 50%; font-size: 1.2rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.3s; }
+        .nav-btn:hover { background: rgba(0,255,136,0.15); }
+        .slide-dots { display: flex; gap: 8px; }
+        .slide-dots .dot { width: 10px; height: 10px; border-radius: 50%; background: rgba(0,255,136,0.15); cursor: pointer; transition: background 0.3s, transform 0.3s; }
+        .slide-dots .dot.active { background: #00ff88; transform: scale(1.3); }
+        .slide-counter { font-size: 0.8rem; color: #5a8c66; min-width: 40px; text-align: center; font-family: 'JetBrains Mono', monospace; }
+        .reveal { opacity: 0; transform: translateY(20px); }
+
+        /* Glow */
+        .text-glow { text-shadow: 0 0 20px rgba(0,255,136,0.6), 0 0 40px rgba(0,255,136,0.25); }
+        .stat-glow { text-shadow: 0 0 30px rgba(0,255,136,0.7), 0 0 60px rgba(0,255,136,0.3); }
+        .cyan-glow { text-shadow: 0 0 20px rgba(0,229,255,0.6), 0 0 40px rgba(0,229,255,0.25); }
+        @keyframes glow-pulse {
+            0%, 100% { text-shadow: 0 0 20px rgba(0,255,136,0.6), 0 0 40px rgba(0,255,136,0.25); }
+            50% { text-shadow: 0 0 30px rgba(0,255,136,1), 0 0 60px rgba(0,255,136,0.4); }
+        }
+        .glow-pulse { animation: glow-pulse 2.5s ease-in-out infinite; }
+
+        /* Scanlines */
+        .scanlines::before {
+            content: ''; position: absolute; inset: 0; z-index: 3; pointer-events: none;
+            background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+        }
+
+        /* Gradient mesh blobs */
+        @keyframes float-slow {
+            0% { transform: translate(0,0) scale(1); }
+            25% { transform: translate(60px,-50px) scale(1.12); }
+            50% { transform: translate(-40px,40px) scale(0.9); }
+            75% { transform: translate(50px,20px) scale(1.08); }
+            100% { transform: translate(0,0) scale(1); }
+        }
+        @keyframes float-drift {
+            0% { transform: translate(0,0) scale(1) rotate(0deg); }
+            33% { transform: translate(-50px,-60px) scale(1.15) rotate(3deg); }
+            66% { transform: translate(40px,30px) scale(0.88) rotate(-2deg); }
+            100% { transform: translate(0,0) scale(1) rotate(0deg); }
+        }
+        @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-15px); } }
+        @keyframes cursor-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+        .gradient-mesh { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+        .blob { position: absolute; border-radius: 50%; filter: blur(80px); animation: float-slow 10s ease-in-out infinite; }
+        .blob:nth-child(2) { animation: float-drift 14s ease-in-out infinite; }
+        .blob:nth-child(3) { animation: float-slow 18s ease-in-out infinite reverse; }
+
+        .slide::before {
+            content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+            background-repeat: repeat; background-size: 256px 256px; opacity: 0.04; mix-blend-mode: overlay;
+        }
+        .slide::after {
+            content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none;
+            background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.55) 100%);
+        }
+
+        /* Terminal grid bg */
+        .terminal-grid {
+            position: absolute; inset: 0; z-index: 0; pointer-events: none; opacity: 0.04;
+            background-image: linear-gradient(rgba(0,255,136,0.5) 1px, transparent 1px),
+                              linear-gradient(90deg, rgba(0,255,136,0.5) 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+
+        /* Code block styling */
+        .code-block {
+            background: rgba(0,255,136,0.04);
+            border: 1px solid rgba(0,255,136,0.15);
+            border-left: 3px solid #00ff88;
+            border-radius: 8px;
+            padding: 1rem 1.25rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            color: #a3d9af;
+            line-height: 1.7;
+        }
+        .code-block .keyword { color: #00ff88; }
+        .code-block .comment { color: #3d6b4a; }
+        .code-block .value { color: #00e5ff; }
+        .code-block .type { color: #ff6b35; }
+
+        /* Bar chart */
+        .bar-chart { display: flex; align-items: flex-end; gap: clamp(0.4rem, 1vw, 0.75rem); height: clamp(120px,20vh,180px); }
+        .bar-col { display: flex; flex-direction: column; align-items: center; gap: 0.3rem; flex: 1; }
+        .bar { border-radius: 4px 4px 0 0; width: 100%; }
+
+        /* Pulsing border */
+        @keyframes border-pulse {
+            0%, 100% { border-color: rgba(0,255,136,0.2); }
+            50% { border-color: rgba(0,255,136,0.6); }
+        }
+        .border-pulse { animation: border-pulse 2s ease-in-out infinite; }
+
+        /* Flow diagram */
+        .flow-step {
+            background: rgba(0,255,136,0.04);
+            border: 1px solid rgba(0,255,136,0.2);
+            border-radius: 8px;
+            padding: 0.6rem 1rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.78rem;
+            color: #a3d9af;
+            text-align: center;
+            white-space: nowrap;
+        }
+        .flow-arrow { color: #00ff88; font-size: 1.2rem; align-self: center; }
+        .insight-box {
+            background: rgba(0,255,136,0.045);
+            border: 1px solid rgba(0,255,136,0.16);
+            border-left: 3px solid #00ff88;
+            border-radius: 8px;
+            padding: 0.85rem 1rem;
+        }
+        .insight-title {
+            font-family: 'JetBrains Mono', monospace;
+            color: #00ff88;
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 1.4px;
+            margin-bottom: 0.35rem;
+        }
+        .insight-text { color: #a3d9af; font-size: 0.78rem; line-height: 1.55; }
+        .mini-pill {
+            display: inline-flex;
+            align-items: center;
+            border: 1px solid rgba(0,229,255,0.18);
+            background: rgba(0,229,255,0.045);
+            color: #a3d9af;
+            border-radius: 999px;
+            padding: 0.25rem 0.55rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.62rem;
+            white-space: nowrap;
+        }
+        .slide-kicker {
+            position: absolute;
+            top: 22px;
+            right: 32px;
+            z-index: 4;
+            color: #3d6b4a;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.62rem;
+            letter-spacing: 1.6px;
+            text-transform: uppercase;
+        }
+
+        /* Professional presentation theme overrides */
+        :root {
+            --color-bg: #f5f7fb;
+            --color-text: #172033;
+            --color-primary: #1f4e79;
+            --color-secondary: #3b6f8f;
+            --color-accent: #c45a2a;
+            --color-muted: #64748b;
+            --color-border: #d8e0ea;
+            --color-panel: #ffffff;
+        }
+        html, body { background: var(--color-bg) !important; }
+        body { color: var(--color-text) !important; }
+        .slide {
+            background: linear-gradient(180deg, #ffffff 0%, #f4f7fb 100%) !important;
+            color: var(--color-text) !important;
+        }
+        .gradient-mesh,
+        .terminal-grid,
+        .blob { display: none !important; }
+        .slide::before,
+        .slide::after,
+        .scanlines::before { display: none !important; }
+        .glow-pulse,
+        .border-pulse { animation: none !important; }
+        .slide *,
+        .slide *::before,
+        .slide *::after {
+            text-shadow: none !important;
+        }
+        .slide h1,
+        .slide h2 {
+            font-family: 'Inter', sans-serif !important;
+            color: var(--color-primary) !important;
+            -webkit-text-fill-color: var(--color-primary) !important;
+            background: none !important;
+            letter-spacing: 0 !important;
+        }
+        .slide p,
+        .slide li,
+        .slide td,
+        .slide span,
+        .slide .content div {
+            color: #334155 !important;
+        }
+        .slide th,
+        .slide .insight-title,
+        .slide-kicker {
+            color: var(--color-primary) !important;
+        }
+        .slide .content > .reveal:first-child {
+            display: none !important;
+        }
+        .slide [style*="background:rgba"] {
+            background: var(--color-panel) !important;
+            border-color: var(--color-border) !important;
+            box-shadow: 0 10px 28px rgba(15, 23, 42, 0.07) !important;
+        }
+        .insight-box,
+        .flow-step {
+            background: var(--color-panel) !important;
+            border-color: var(--color-border) !important;
+            border-left-color: var(--color-primary) !important;
+            box-shadow: 0 10px 28px rgba(15, 23, 42, 0.07) !important;
+        }
+        .insight-text { color: #475569 !important; }
+        .mini-pill {
+            background: #eef5fb !important;
+            border-color: #c9d9e8 !important;
+            color: #334155 !important;
+            font-family: 'Inter', sans-serif !important;
+        }
+        .code-block {
+            background: #0f172a !important;
+            border-color: #243247 !important;
+            border-left-color: var(--color-primary) !important;
+            color: #cbd5e1 !important;
+            box-shadow: 0 14px 32px rgba(15, 23, 42, 0.18) !important;
+        }
+        .code-block,
+        .code-block * {
+            font-family: 'JetBrains Mono', monospace !important;
+        }
+        .code-block .keyword { color: #93c5fd !important; }
+        .code-block .comment { color: #94a3b8 !important; }
+        .code-block .value { color: #67e8f9 !important; }
+        .code-block .type { color: #fdba74 !important; }
+        .nav-controls {
+            background: rgba(255, 255, 255, 0.92) !important;
+            border-color: var(--color-border) !important;
+            box-shadow: 0 12px 30px rgba(15, 23, 42, 0.12) !important;
+        }
+        .nav-btn {
+            background: #eef5fb !important;
+            color: var(--color-primary) !important;
+        }
+        .nav-btn:hover { background: #dcebf7 !important; }
+        .slide-dots .dot { background: #cbd5e1 !important; }
+        .slide-dots .dot.active { background: var(--color-primary) !important; }
+        .slide-counter { color: var(--color-muted) !important; }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.2s !important; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="deck">
+
+    <!-- SLIDE 1: TITLE -->
+    <div class="slide slide-1 active" data-slide="1">
+        <div class="slide-kicker">platform modernization deck</div>
+        <div class="gradient-mesh">
+            <div class="blob" style="width:500px;height:500px;top:-100px;right:-80px;background:#00ff88;opacity:0.10;"></div>
+            <div class="blob" style="width:350px;height:350px;bottom:-80px;left:-60px;background:#00e5ff;opacity:0.08;"></div>
+            <div class="blob" style="width:250px;height:250px;top:45%;left:12%;background:#ff6b35;opacity:0.07;"></div>
+        </div>
+        <div class="terminal-grid"></div>
+        <div class="content text-center">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:0.85rem;color:#3d6b4a;margin-bottom:1.5rem;" class="reveal">
+                <span style="color:#00ff88;">$</span> kubectl apply -f migration-agent.yaml
+            </div>
+            <div style="font-size:0.78rem;letter-spacing:2px;text-transform:uppercase;margin-bottom:1rem;font-weight:700;" class="reveal">Platform Engineering Automation</div>
+            <h1 style="font-family:'JetBrains Mono',monospace;font-size:clamp(2rem,5vw,3.8rem);font-weight:800;background:linear-gradient(135deg,#00ff88,#00e5ff,#00ff88);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:1rem;line-height:1.2;" class="reveal glow-pulse">AI GitOps Agent</h1>
+            <h2 style="font-family:'JetBrains Mono',monospace;font-size:clamp(1rem,2.5vw,1.6rem);font-weight:400;color:#a3d9af;margin-bottom:0.75rem;" class="reveal">Ingress <span style="color:#ff6b35;">→</span> Gateway API Migration</h2>
+            <p style="font-size:0.85rem;letter-spacing:6px;text-transform:uppercase;color:#5a8c66;font-family:'JetBrains Mono',monospace;" class="reveal">NGINX to Envoy Gateway · GitOps Automation · Human Review</p>
+            <div style="max-width:760px;margin:1.1rem auto 0;" class="reveal insight-box">
+                <div class="insight-title">Executive thesis</div>
+                <div class="insight-text">Use agents for the repetitive repository work: inspect manifests, convert resources, validate YAML, push a branch, and produce a reviewer-ready pull request. Engineers keep ownership of design decisions and approval.</div>
+            </div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:#3d6b4a;margin-top:2rem;" class="reveal">
+                <span style="color:#00ff88;">[</span> 200 story points <span style="color:#ff6b35;">→</span> 100 story points <span style="color:#00ff88;">]</span>
+                <span style="animation:cursor-blink 1s ease-in-out infinite;color:#00ff88;">█</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- SLIDE 2: AGENDA -->
+    <div class="slide slide-2" data-slide="2">
+        <div class="gradient-mesh">
+            <div class="blob" style="width:350px;height:350px;top:-80px;right:-60px;background:#00ff88;opacity:0.07;"></div>
+            <div class="blob" style="width:250px;height:250px;bottom:-60px;left:-40px;background:#00e5ff;opacity:0.06;"></div>
+        </div>
+        <div class="terminal-grid"></div>
+        <div class="content">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:#3d6b4a;margin-bottom:0.5rem;" class="reveal"><span style="color:#00ff88;">$</span> cat agenda.md</div>
+            <h2 style="font-family:'JetBrains Mono',monospace;font-size:clamp(1.8rem,3.5vw,2.5rem);font-weight:700;color:#00ff88;margin-bottom:2rem;" class="reveal">Agenda</h2>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+                <div style="background:rgba(0,255,136,0.04);border:1px solid rgba(0,255,136,0.15);border-left:3px solid #00ff88;border-radius:8px;padding:1rem 1.25rem;" class="reveal">
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:#5a8c66;margin-bottom:0.3rem;">01 //</div>
+                    <div style="font-size:0.95rem;font-weight:600;color:#e2fce8;margin-bottom:0.2rem;">Kubernetes Ingress & NGINX</div>
+                    <div style="font-size:0.8rem;color:#5a8c66;">Annotations, limitations, controller model</div>
+                </div>
+                <div style="background:rgba(0,229,255,0.04);border:1px solid rgba(0,229,255,0.15);border-left:3px solid #00e5ff;border-radius:8px;padding:1rem 1.25rem;" class="reveal">
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:#5a8c66;margin-bottom:0.3rem;">02 //</div>
+                    <div style="font-size:0.95rem;font-weight:600;color:#e2fce8;margin-bottom:0.2rem;">Gateway API</div>
+                    <div style="font-size:0.8rem;color:#5a8c66;">GatewayClass, HTTPRoute, typed resources</div>
+                </div>
+                <div style="background:rgba(255,107,53,0.04);border:1px solid rgba(255,107,53,0.15);border-left:3px solid #ff6b35;border-radius:8px;padding:1rem 1.25rem;" class="reveal">
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:#5a8c66;margin-bottom:0.3rem;">03 //</div>
+                    <div style="font-size:0.95rem;font-weight:600;color:#e2fce8;margin-bottom:0.2rem;">Envoy Gateway & Policies</div>
+                    <div style="font-size:0.8rem;color:#5a8c66;">BackendTrafficPolicy, SecurityPolicy, EnvoyPatchPolicy</div>
+                </div>
+                <div style="background:rgba(0,255,136,0.04);border:1px solid rgba(0,255,136,0.15);border-left:3px solid #00ff88;border-radius:8px;padding:1rem 1.25rem;" class="reveal">
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:#5a8c66;margin-bottom:0.3rem;">04 //</div>
+                    <div style="font-size:0.95rem;font-weight:600;color:#e2fce8;margin-bottom:0.2rem;">Feature Migration Map</div>
+                    <div style="font-size:0.8rem;color:#5a8c66;">Annotation → Policy translation table</div>
+                </div>
+                <div style="background:rgba(0,229,255,0.04);border:1px solid rgba(0,229,255,0.15);border-left:3px solid #00e5ff;border-radius:8px;padding:1rem 1.25rem;" class="reveal">
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:#5a8c66;margin-bottom:0.3rem;">05 //</div>
+                    <div style="font-size:0.95rem;font-weight:600;color:#e2fce8;margin-bottom:0.2rem;">Problem Statement</div>
+                    <div style="font-size:0.8rem;color:#5a8c66;">100 clients, many env repos, manual pain</div>
+                </div>
+                <div style="background:rgba(255,107,53,0.04);border:1px solid rgba(255,107,53,0.15);border-left:3px solid #ff6b35;border-radius:8px;padding:1rem 1.25rem;" class="reveal">
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:#5a8c66;margin-bottom:0.3rem;">06 //</div>
+                    <div style="font-size:0.95rem;font-weight:600;color:#e2fce8;margin-bottom:0.2rem;">GitOps Agent Architecture</div>
+                    <div style="font-size:0.8rem;color:#5a8c66;">Skills, tools, state, streaming UI, PR review</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SLIDE 3: NGINX INGRESS -->
+    <div class="slide slide-3" data-slide="3">
+        <div class="gradient-mesh">
+            <div class="blob" style="width:400px;height:400px;top:-100px;left:-60px;background:#00ff88;opacity:0.08;"></div>
+            <div class="blob" style="width:250px;height:250px;bottom:-50px;right:-40px;background:#ff6b35;opacity:0.07;"></div>
+        </div>
+        <div class="terminal-grid"></div>
+        <div class="content">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:#3d6b4a;margin-bottom:0.5rem;" class="reveal"><span style="color:#00ff88;">$</span> describe ingress nginx-controller</div>
+            <h2 style="font-family:'JetBrains Mono',monospace;font-size:clamp(1.6rem,3vw,2.2rem);font-weight:700;color:#00ff88;margin-bottom:1.5rem;" class="reveal">01 // Kubernetes Ingress & NGINX</h2>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;">
+                <div>
+                    <p style="font-size:0.88rem;color:#a3d9af;margin-bottom:1rem;line-height:1.6;" class="reveal">An <span style="color:#00e5ff;font-family:'JetBrains Mono',monospace;">Ingress</span> API object exposes HTTP/HTTPS services outside the cluster. NGINX Ingress watches Ingress resources and converts them into NGINX configuration.</p>
+                    <div style="font-size:0.8rem;color:#5a8c66;margin-bottom:0.4rem;font-family:'JetBrains Mono',monospace;" class="reveal">// An Ingress usually defines:</div>
+                    <ul style="list-style:none;padding:0;margin:0;" class="reveal">
+                        <li style="font-size:0.85rem;color:#a3d9af;padding:0.3rem 0;display:flex;align-items:center;gap:0.5rem;"><span style="color:#00ff88;">▸</span> Hostnames: <span style="color:#00e5ff;font-family:'JetBrains Mono',monospace;">shop.example.com</span></li>
+                        <li style="font-size:0.85rem;color:#a3d9af;padding:0.3rem 0;display:flex;align-items:center;gap:0.5rem;"><span style="color:#00ff88;">▸</span> Paths: <span style="color:#00e5ff;font-family:'JetBrains Mono',monospace;">/api, /orders, /</span></li>
+                        <li style="font-size:0.85rem;color:#a3d9af;padding:0.3rem 0;display:flex;align-items:center;gap:0.5rem;"><span style="color:#00ff88;">▸</span> Backend Kubernetes Services</li>
+                        <li style="font-size:0.85rem;color:#a3d9af;padding:0.3rem 0;display:flex;align-items:center;gap:0.5rem;"><span style="color:#00ff88;">▸</span> TLS certificates</li>
+                    </ul>
+                </div>
+                <div>
+                    <div style="font-size:0.8rem;color:#5a8c66;margin-bottom:0.5rem;font-family:'JetBrains Mono',monospace;" class="reveal">// Annotation-heavy advanced features:</div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem;" class="reveal">
+                        <div style="background:rgba(255,107,53,0.06);border:1px solid rgba(255,107,53,0.2);border-radius:5px;padding:0.35rem 0.6rem;font-size:0.73rem;font-family:'JetBrains Mono',monospace;color:#ff9566;">rewrite-target</div>
+                        <div style="background:rgba(255,107,53,0.06);border:1px solid rgba(255,107,53,0.2);border-radius:5px;padding:0.35rem 0.6rem;font-size:0.73rem;font-family:'JetBrains Mono',monospace;color:#ff9566;">ssl-redirect</div>
+                        <div style="background:rgba(255,107,53,0.06);border:1px solid rgba(255,107,53,0.2);border-radius:5px;padding:0.35rem 0.6rem;font-size:0.73rem;font-family:'JetBrains Mono',monospace;color:#ff9566;">proxy-body-size</div>
+                        <div style="background:rgba(255,107,53,0.06);border:1px solid rgba(255,107,53,0.2);border-radius:5px;padding:0.35rem 0.6rem;font-size:0.73rem;font-family:'JetBrains Mono',monospace;color:#ff9566;">proxy-read-timeout</div>
+                        <div style="background:rgba(255,107,53,0.06);border:1px solid rgba(255,107,53,0.2);border-radius:5px;padding:0.35rem 0.6rem;font-size:0.73rem;font-family:'JetBrains Mono',monospace;color:#ff9566;">limit-rps</div>
+                        <div style="background:rgba(255,107,53,0.06);border:1px solid rgba(255,107,53,0.2);border-radius:5px;padding:0.35rem 0.6rem;font-size:0.73rem;font-family:'JetBrains Mono',monospace;color:#ff9566;">whitelist-source</div>
+                        <div style="background:rgba(255,107,53,0.06);border:1px solid rgba(255,107,53,0.2);border-radius:5px;padding:0.35rem 0.6rem;font-size:0.73rem;font-family:'JetBrains Mono',monospace;color:#ff9566;">enable-cors</div>
+                        <div style="background:rgba(255,107,53,0.06);border:1px solid rgba(255,107,53,0.2);border-radius:5px;padding:0.35rem 0.6rem;font-size:0.73rem;font-family:'JetBrains Mono',monospace;color:#ff9566;">canary-weight</div>
+                    </div>
+                    <p style="font-size:0.78rem;color:#5a8c66;margin-top:0.75rem;font-style:italic;" class="reveal">Annotation-heavy configuration becomes hard to standardize, validate, and migrate at scale.</p>
+                </div>
+            </div>
+            <div style="margin-top:1rem;display:grid;grid-template-columns:repeat(3,1fr);gap:0.75rem;" class="reveal">
+                <div class="insight-box"><div class="insight-title">Operational risk</div><div class="insight-text">Critical behavior can hide inside string annotations and snippets that are hard to validate before runtime.</div></div>
+                <div class="insight-box" style="border-left-color:#00e5ff;"><div class="insight-title" style="color:#00e5ff;">Portability gap</div><div class="insight-text">The same Ingress spec can mean different things across controllers because annotations are implementation-specific.</div></div>
+                <div class="insight-box" style="border-left-color:#ff6b35;"><div class="insight-title" style="color:#ff6b35;">Migration cost</div><div class="insight-text">Every repository needs discovery, interpretation, conversion, validation, and a human-friendly review summary.</div></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SLIDE 4: GATEWAY API -->
+    <div class="slide slide-4" data-slide="4">
+        <div class="gradient-mesh">
+            <div class="blob" style="width:450px;height:450px;top:-80px;right:-80px;background:#00e5ff;opacity:0.08;"></div>
+            <div class="blob" style="width:300px;height:300px;bottom:-60px;left:-50px;background:#00ff88;opacity:0.07;"></div>
+        </div>
+        <div class="terminal-grid"></div>
+        <div class="content">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:#3d6b4a;margin-bottom:0.5rem;" class="reveal"><span style="color:#00e5ff;">$</span> kubectl get gatewayclass,gateway,httproute</div>
+            <h2 style="font-family:'JetBrains Mono',monospace;font-size:clamp(1.6rem,3vw,2.2rem);font-weight:700;color:#00e5ff;margin-bottom:0.5rem;" class="reveal">02 // Gateway API</h2>
+            <p style="font-size:0.85rem;color:#a3d9af;margin-bottom:1.2rem;" class="reveal">The <strong style="color:#00e5ff;">next-generation</strong> Kubernetes networking API. Traffic behavior becomes part of typed resources — not opaque annotations.</p>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.75rem;margin-bottom:1.2rem;">
+                <div style="background:rgba(0,229,255,0.05);border:1px solid rgba(0,229,255,0.2);border-radius:10px;padding:1rem;text-align:center;" class="reveal">
+                    <div style="font-size:0.8rem;margin-bottom:0.4rem;font-weight:700;">GC</div>
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:#00e5ff;font-weight:600;">GatewayClass</div>
+                    <div style="font-size:0.7rem;color:#5a8c66;margin-top:0.2rem;">Identifies the gateway implementation</div>
+                </div>
+                <div style="background:rgba(0,229,255,0.05);border:1px solid rgba(0,229,255,0.2);border-radius:10px;padding:1rem;text-align:center;" class="reveal">
+                    <div style="font-size:0.8rem;margin-bottom:0.4rem;font-weight:700;">GW</div>
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:#00e5ff;font-weight:600;">Gateway</div>
+                    <div style="font-size:0.7rem;color:#5a8c66;margin-top:0.2rem;">Entry point into the cluster</div>
+                </div>
+                <div style="background:rgba(0,229,255,0.05);border:1px solid rgba(0,229,255,0.2);border-radius:10px;padding:1rem;text-align:center;" class="reveal">
+                    <div style="font-size:0.8rem;margin-bottom:0.4rem;font-weight:700;">HR</div>
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:#00e5ff;font-weight:600;">HTTPRoute</div>
+                    <div style="font-size:0.7rem;color:#5a8c66;margin-top:0.2rem;">Defines HTTP routing behavior</div>
+                </div>
+                <div style="background:rgba(0,229,255,0.05);border:1px solid rgba(0,229,255,0.2);border-radius:10px;padding:1rem;text-align:center;" class="reveal">
+                    <div style="font-size:0.8rem;margin-bottom:0.4rem;font-weight:700;">RG</div>
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:#00e5ff;font-weight:600;">ReferenceGrant</div>
+                    <div style="font-size:0.7rem;color:#5a8c66;margin-top:0.2rem;">Safe cross-namespace references</div>
+                </div>
+            </div>
+            <div style="background:rgba(0,229,255,0.04);border:1px solid rgba(0,229,255,0.15);border-radius:8px;padding:0.85rem 1.2rem;display:flex;align-items:flex-start;gap:0.75rem;" class="reveal">
+                <span style="color:#00e5ff;font-size:0.78rem;margin-top:0.1rem;font-weight:700;">NOTE</span>
+                <div>
+                    <div style="font-size:0.85rem;font-weight:600;color:#e2fce8;margin-bottom:0.2rem;">Key Shift</div>
+                    <div style="font-size:0.8rem;color:#a3d9af;">Gateway API enables <strong style="color:#00e5ff;">clear ownership boundaries</strong> between platform teams (Gateway) and application teams (HTTPRoute). No more controller-specific annotation dialects.</div>
+                </div>
+            </div>
+            <div style="margin-top:0.75rem;display:flex;flex-wrap:wrap;gap:0.4rem;" class="reveal">
+                <span class="mini-pill">Platform owns GatewayClass + Gateway</span>
+                <span class="mini-pill">App teams own HTTPRoute</span>
+                <span class="mini-pill">Policies encode runtime behavior</span>
+                <span class="mini-pill">Review becomes typed YAML, not hidden NGINX config</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- SLIDE 5: ENVOY GATEWAY -->
+    <div class="slide slide-5" data-slide="5">
+        <div class="gradient-mesh">
+            <div class="blob" style="width:400px;height:400px;top:-80px;left:-60px;background:#ff6b35;opacity:0.07;"></div>
+            <div class="blob" style="width:300px;height:300px;bottom:-60px;right:-40px;background:#00ff88;opacity:0.07;"></div>
+        </div>
+        <div class="terminal-grid"></div>
+        <div class="content">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:#3d6b4a;margin-bottom:0.5rem;" class="reveal"><span style="color:#ff6b35;">$</span> helm install envoy-gateway oci://docker.io/envoyproxy/gateway-helm</div>
+            <h2 style="font-family:'JetBrains Mono',monospace;font-size:clamp(1.6rem,3vw,2.2rem);font-weight:700;color:#ff6b35;margin-bottom:0.75rem;" class="reveal">03 // Envoy Gateway & Policy Model</h2>
+            <p style="font-size:0.83rem;color:#a3d9af;margin-bottom:1rem;" class="reveal">An implementation of Kubernetes Gateway API built on <strong style="color:#ff6b35;">Envoy Proxy</strong> — a high-performance L7 proxy. Policies express operational behavior as typed Kubernetes resources.</p>
+            <div style="overflow-x:auto;" class="reveal">
+                <table style="width:100%;border-collapse:collapse;font-size:0.75rem;">
+                    <thead>
+                        <tr style="border-bottom:1px solid rgba(255,107,53,0.3);">
+                            <th style="text-align:left;padding:0.5rem 0.75rem;color:#ff6b35;font-family:'JetBrains Mono',monospace;font-weight:600;">Policy Resource</th>
+                            <th style="text-align:left;padding:0.5rem 0.75rem;color:#ff6b35;font-family:'JetBrains Mono',monospace;font-weight:600;">Controls</th>
+                            <th style="text-align:left;padding:0.5rem 0.75rem;color:#ff6b35;font-family:'JetBrains Mono',monospace;font-weight:600;">Example Features</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr style="border-bottom:1px solid rgba(255,107,53,0.1);">
+                            <td style="padding:0.45rem 0.75rem;font-family:'JetBrains Mono',monospace;color:#00ff88;">BackendTrafficPolicy</td>
+                            <td style="padding:0.45rem 0.75rem;color:#a3d9af;">Envoy ↔ backend traffic</td>
+                            <td style="padding:0.45rem 0.75rem;color:#5a8c66;">Rate limiting, retries, timeouts, circuit breaking</td>
+                        </tr>
+                        <tr style="border-bottom:1px solid rgba(255,107,53,0.1);">
+                            <td style="padding:0.45rem 0.75rem;font-family:'JetBrains Mono',monospace;color:#00e5ff;">SecurityPolicy</td>
+                            <td style="padding:0.45rem 0.75rem;color:#a3d9af;">Security at gateway routes</td>
+                            <td style="padding:0.45rem 0.75rem;color:#5a8c66;">CORS, JWT auth, IP filtering, authorization rules</td>
+                        </tr>
+                        <tr style="border-bottom:1px solid rgba(255,107,53,0.1);">
+                            <td style="padding:0.45rem 0.75rem;font-family:'JetBrains Mono',monospace;color:#ff9566;">BackendTLSPolicy</td>
+                            <td style="padding:0.45rem 0.75rem;color:#a3d9af;">TLS: gateway → backend</td>
+                            <td style="padding:0.45rem 0.75rem;color:#5a8c66;">Originate TLS upstream, cert validation</td>
+                        </tr>
+                        <tr style="border-bottom:1px solid rgba(255,107,53,0.1);">
+                            <td style="padding:0.45rem 0.75rem;font-family:'JetBrains Mono',monospace;color:#a3d9af;">ClientTrafficPolicy</td>
+                            <td style="padding:0.45rem 0.75rem;color:#a3d9af;">Client-facing edge behavior</td>
+                            <td style="padding:0.45rem 0.75rem;color:#5a8c66;">Header handling, connection options, protocol</td>
+                        </tr>
+                        <tr>
+                            <td style="padding:0.45rem 0.75rem;font-family:'JetBrains Mono',monospace;color:#5a8c66;">EnvoyPatchPolicy</td>
+                            <td style="padding:0.45rem 0.75rem;color:#a3d9af;">Low-level xDS patching</td>
+                            <td style="padding:0.45rem 0.75rem;color:#5a8c66;">Custom compression, advanced Envoy filters</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div style="margin-top:0.9rem;display:grid;grid-template-columns:1fr 1fr;gap:0.8rem;" class="reveal">
+                <div class="insight-box">
+                    <div class="insight-title">Why Envoy Gateway</div>
+                    <div class="insight-text">It gives teams a Kubernetes-native control plane for Envoy, while preserving Gateway API as the portable contract between platform and application teams.</div>
+                </div>
+                <div class="insight-box" style="border-left-color:#ff6b35;">
+                    <div class="insight-title" style="color:#ff6b35;">Migration reality</div>
+                    <div class="insight-text">Gateway API covers the common routing model; Envoy Gateway policy CRDs cover operational behavior such as timeouts, rate limits, security controls, and lower-level Envoy extensions.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SLIDE 6: ANNOTATION TO POLICY -->
+    <div class="slide slide-6" data-slide="6">
+        <div class="gradient-mesh">
+            <div class="blob" style="width:400px;height:400px;top:-80px;right:-80px;background:#00ff88;opacity:0.07;"></div>
+            <div class="blob" style="width:280px;height:280px;bottom:-60px;left:-50px;background:#00e5ff;opacity:0.06;"></div>
+        </div>
+        <div class="terminal-grid"></div>
+        <div class="content">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:#3d6b4a;margin-bottom:0.5rem;" class="reveal"><span style="color:#00ff88;">$</span> diff nginx-ingress.yaml envoy-gateway.yaml</div>
+            <h2 style="font-family:'JetBrains Mono',monospace;font-size:clamp(1.5rem,3vw,2rem);font-weight:700;color:#00ff88;margin-bottom:1rem;" class="reveal">04 // Annotation → Policy Translation</h2>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;" class="reveal">
+                <div class="code-block">
+                    <div style="color:#5a8c66;margin-bottom:0.5rem;"># NGINX Ingress</div>
+                    <div><span class="keyword">nginx.ingress.kubernetes.io/</span></div>
+                    <div><span class="value">  proxy-read-timeout: "90"</span></div>
+                    <div><span class="value">  rewrite-target: /$2</span></div>
+                    <div><span class="value">  ssl-redirect: "true"</span></div>
+                    <div><span class="value">  whitelist-source-range: "10.0.0.0/8"</span></div>
+                    <div><span class="value">  enable-cors: "true"</span></div>
+                    <div><span class="value">  limit-rps: "100"</span></div>
+                </div>
+                <div class="code-block">
+                    <div style="color:#5a8c66;margin-bottom:0.5rem;"># Envoy Gateway</div>
+                    <div><span class="type">BackendTrafficPolicy</span><span style="color:#5a8c66;"> # timeouts, rps</span></div>
+                    <div><span class="type">SecurityPolicy</span><span style="color:#5a8c66;">        # cors, ip</span></div>
+                    <div><span class="type">HTTPRoute</span><span style="color:#5a8c66;">             # rewrites</span></div>
+                    <div><span class="keyword">  URLRewrite</span><span style="color:#5a8c66;"> filter</span></div>
+                    <div><span class="keyword">  RequestRedirect</span><span style="color:#5a8c66;"> filter</span></div>
+                    <div style="color:#5a8c66;">&nbsp;</div>
+                    <div style="color:#00ff88;">→ typed resources, validated</div>
+                </div>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.6rem;" class="reveal">
+                <div style="background:rgba(0,255,136,0.04);border:1px solid rgba(0,255,136,0.15);border-radius:6px;padding:0.6rem;text-align:center;">
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:0.65rem;color:#5a8c66;">Timeout</div>
+                    <div style="font-size:0.7rem;color:#ff6b35;margin:0.2rem 0;">proxy-read-timeout</div>
+                    <div style="font-size:0.65rem;color:#00ff88;">→ BackendTrafficPolicy</div>
+                </div>
+                <div style="background:rgba(0,229,255,0.04);border:1px solid rgba(0,229,255,0.15);border-radius:6px;padding:0.6rem;text-align:center;">
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:0.65rem;color:#5a8c66;">Rate Limit</div>
+                    <div style="font-size:0.7rem;color:#ff6b35;margin:0.2rem 0;">limit-rps, limit-connections</div>
+                    <div style="font-size:0.65rem;color:#00e5ff;">→ BackendTrafficPolicy</div>
+                </div>
+                <div style="background:rgba(255,107,53,0.04);border:1px solid rgba(255,107,53,0.15);border-radius:6px;padding:0.6rem;text-align:center;">
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:0.65rem;color:#5a8c66;">CORS / IP</div>
+                    <div style="font-size:0.7rem;color:#ff6b35;margin:0.2rem 0;">enable-cors, whitelist</div>
+                    <div style="font-size:0.65rem;color:#ff9566;">→ SecurityPolicy</div>
+                </div>
+                <div style="background:rgba(0,255,136,0.04);border:1px solid rgba(0,255,136,0.15);border-radius:6px;padding:0.6rem;text-align:center;">
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:0.65rem;color:#5a8c66;">Canary</div>
+                    <div style="font-size:0.7rem;color:#ff6b35;margin:0.2rem 0;">canary-weight: 20%</div>
+                    <div style="font-size:0.65rem;color:#00ff88;">→ HTTPRoute.backendRefs.weight</div>
+                </div>
+            </div>
+            <div style="margin-top:0.8rem;" class="reveal insight-box">
+                <div class="insight-title">Reviewer implication</div>
+                <div class="insight-text">The PR should not only say “converted successfully.” It should explain which annotations were found, which Gateway/Envoy resources now represent them, and where behavior needs follow-up validation.</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SLIDE 7: FEATURE MIGRATION MATRIX -->
+    <div class="slide slide-7" data-slide="7">
+        <div class="gradient-mesh">
+            <div class="blob" style="width:420px;height:420px;top:-90px;left:-80px;background:#00ff88;opacity:0.07;"></div>
+            <div class="blob" style="width:300px;height:300px;bottom:-60px;right:-50px;background:#ff6b35;opacity:0.06;"></div>
+        </div>
+        <div class="terminal-grid"></div>
+        <div class="content">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:#3d6b4a;margin-bottom:0.5rem;" class="reveal"><span style="color:#00ff88;">$</span> agent explain --feature-map nginx-to-envoy</div>
+            <h2 style="font-family:'JetBrains Mono',monospace;font-size:clamp(1.45rem,3vw,2rem);font-weight:700;color:#00ff88;margin-bottom:0.8rem;" class="reveal">04b // Feature Migration Matrix</h2>
+            <p style="font-size:0.78rem;color:#a3d9af;margin-bottom:0.75rem;" class="reveal">The migration is not just YAML shape-shifting. The agent must preserve behavior by mapping NGINX annotations into Gateway API filters and Envoy Gateway policy CRDs.</p>
+            <div style="overflow-x:auto;" class="reveal">
+                <table style="width:100%;border-collapse:collapse;font-size:0.64rem;line-height:1.35;">
+                    <thead>
+                        <tr style="border-bottom:1px solid rgba(0,255,136,0.35);">
+                            <th style="text-align:left;padding:0.34rem 0.45rem;color:#00ff88;font-family:'JetBrains Mono',monospace;">Feature</th>
+                            <th style="text-align:left;padding:0.34rem 0.45rem;color:#00ff88;font-family:'JetBrains Mono',monospace;">NGINX Ingress</th>
+                            <th style="text-align:left;padding:0.34rem 0.45rem;color:#00ff88;font-family:'JetBrains Mono',monospace;">Envoy / Gateway API</th>
+                            <th style="text-align:left;padding:0.34rem 0.45rem;color:#00ff88;font-family:'JetBrains Mono',monospace;">Agent Review Note</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr style="border-bottom:1px solid rgba(0,255,136,0.1);">
+                            <td style="padding:0.3rem 0.45rem;color:#e2fce8;">URL rewrites</td>
+                            <td style="padding:0.3rem 0.45rem;color:#ff9566;font-family:'JetBrains Mono',monospace;">rewrite-target</td>
+                            <td style="padding:0.3rem 0.45rem;color:#00e5ff;font-family:'JetBrains Mono',monospace;">HTTPRoute URLRewrite</td>
+                            <td style="padding:0.3rem 0.45rem;color:#5a8c66;">Regex rewrites may need human review.</td>
+                        </tr>
+                        <tr style="border-bottom:1px solid rgba(0,255,136,0.1);">
+                            <td style="padding:0.3rem 0.45rem;color:#e2fce8;">TLS redirect</td>
+                            <td style="padding:0.3rem 0.45rem;color:#ff9566;font-family:'JetBrains Mono',monospace;">ssl-redirect</td>
+                            <td style="padding:0.3rem 0.45rem;color:#00e5ff;font-family:'JetBrains Mono',monospace;">HTTPRoute RequestRedirect</td>
+                            <td style="padding:0.3rem 0.45rem;color:#5a8c66;">Depends on HTTP/HTTPS listener layout.</td>
+                        </tr>
+                        <tr style="border-bottom:1px solid rgba(0,255,136,0.1);">
+                            <td style="padding:0.3rem 0.45rem;color:#e2fce8;">Request size</td>
+                            <td style="padding:0.3rem 0.45rem;color:#ff9566;font-family:'JetBrains Mono',monospace;">proxy-body-size</td>
+                            <td style="padding:0.3rem 0.45rem;color:#00e5ff;font-family:'JetBrains Mono',monospace;">BackendTrafficPolicy requestBuffer.limit</td>
+                            <td style="padding:0.3rem 0.45rem;color:#5a8c66;">Preserve exact size units where possible.</td>
+                        </tr>
+                        <tr style="border-bottom:1px solid rgba(0,255,136,0.1);">
+                            <td style="padding:0.3rem 0.45rem;color:#e2fce8;">Timeouts</td>
+                            <td style="padding:0.3rem 0.45rem;color:#ff9566;font-family:'JetBrains Mono',monospace;">proxy-read-timeout</td>
+                            <td style="padding:0.3rem 0.45rem;color:#00e5ff;font-family:'JetBrains Mono',monospace;">BackendTrafficPolicy timeout.http.requestTimeout</td>
+                            <td style="padding:0.3rem 0.45rem;color:#5a8c66;">Connect/send timeout variants are called out.</td>
+                        </tr>
+                        <tr style="border-bottom:1px solid rgba(0,255,136,0.1);">
+                            <td style="padding:0.3rem 0.45rem;color:#e2fce8;">Rate limiting</td>
+                            <td style="padding:0.3rem 0.45rem;color:#ff9566;font-family:'JetBrains Mono',monospace;">limit-rps, limit-connections</td>
+                            <td style="padding:0.3rem 0.45rem;color:#00e5ff;font-family:'JetBrains Mono',monospace;">BackendTrafficPolicy rateLimit</td>
+                            <td style="padding:0.3rem 0.45rem;color:#5a8c66;">Global/distributed limits need platform design.</td>
+                        </tr>
+                        <tr style="border-bottom:1px solid rgba(0,255,136,0.1);">
+                            <td style="padding:0.3rem 0.45rem;color:#e2fce8;">IP allowlists</td>
+                            <td style="padding:0.3rem 0.45rem;color:#ff9566;font-family:'JetBrains Mono',monospace;">whitelist-source-range</td>
+                            <td style="padding:0.3rem 0.45rem;color:#00e5ff;font-family:'JetBrains Mono',monospace;">SecurityPolicy authorization</td>
+                            <td style="padding:0.3rem 0.45rem;color:#5a8c66;">Source IP preservation must be checked.</td>
+                        </tr>
+                        <tr style="border-bottom:1px solid rgba(0,255,136,0.1);">
+                            <td style="padding:0.3rem 0.45rem;color:#e2fce8;">CORS</td>
+                            <td style="padding:0.3rem 0.45rem;color:#ff9566;font-family:'JetBrains Mono',monospace;">enable-cors, cors-allow-*</td>
+                            <td style="padding:0.3rem 0.45rem;color:#00e5ff;font-family:'JetBrains Mono',monospace;">SecurityPolicy cors</td>
+                            <td style="padding:0.3rem 0.45rem;color:#5a8c66;">Origins, methods, headers must be preserved.</td>
+                        </tr>
+                        <tr style="border-bottom:1px solid rgba(0,255,136,0.1);">
+                            <td style="padding:0.3rem 0.45rem;color:#e2fce8;">Headers</td>
+                            <td style="padding:0.3rem 0.45rem;color:#ff9566;font-family:'JetBrains Mono',monospace;">configuration-snippet</td>
+                            <td style="padding:0.3rem 0.45rem;color:#00e5ff;font-family:'JetBrains Mono',monospace;">HTTPRoute HeaderModifier / ClientTrafficPolicy</td>
+                            <td style="padding:0.3rem 0.45rem;color:#5a8c66;">Simple header add/set/remove maps best.</td>
+                        </tr>
+                        <tr style="border-bottom:1px solid rgba(0,255,136,0.1);">
+                            <td style="padding:0.3rem 0.45rem;color:#e2fce8;">Compression</td>
+                            <td style="padding:0.3rem 0.45rem;color:#ff9566;font-family:'JetBrains Mono',monospace;">gzip on</td>
+                            <td style="padding:0.3rem 0.45rem;color:#00e5ff;font-family:'JetBrains Mono',monospace;">EnvoyPatchPolicy</td>
+                            <td style="padding:0.3rem 0.45rem;color:#5a8c66;">Usually filter-level Envoy config.</td>
+                        </tr>
+                        <tr>
+                            <td style="padding:0.3rem 0.45rem;color:#e2fce8;">Canary routing</td>
+                            <td style="padding:0.3rem 0.45rem;color:#ff9566;font-family:'JetBrains Mono',monospace;">canary-weight</td>
+                            <td style="padding:0.3rem 0.45rem;color:#00e5ff;font-family:'JetBrains Mono',monospace;">HTTPRoute backendRefs.weight</td>
+                            <td style="padding:0.3rem 0.45rem;color:#5a8c66;">Header/cookie canaries need route matches.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- SLIDE 8: TRAFFIC FLOW -->
+    <div class="slide slide-8" data-slide="8">
+        <div class="gradient-mesh">
+            <div class="blob" style="width:380px;height:380px;top:-60px;right:-60px;background:#00e5ff;opacity:0.07;"></div>
+            <div class="blob" style="width:280px;height:280px;bottom:-50px;left:-40px;background:#00ff88;opacity:0.06;"></div>
+        </div>
+        <div class="terminal-grid"></div>
+        <div class="content">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:#3d6b4a;margin-bottom:0.5rem;" class="reveal"><span style="color:#00e5ff;">$</span> traceroute --http production.cluster</div>
+            <h2 style="font-family:'JetBrains Mono',monospace;font-size:clamp(1.5rem,3vw,2rem);font-weight:700;color:#00e5ff;margin-bottom:1.2rem;" class="reveal">05 // Traffic Flow Comparison</h2>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:2rem;">
+                <div class="reveal">
+                    <div style="font-size:0.8rem;font-weight:600;color:#ff6b35;font-family:'JetBrains Mono',monospace;margin-bottom:0.75rem;text-align:center;">NGINX Ingress (Current)</div>
+                    <div style="display:flex;flex-direction:column;align-items:center;gap:0.3rem;">
+                        <div class="flow-step" style="width:100%;border-color:rgba(255,107,53,0.3);">Client</div>
+                        <div class="flow-arrow">↓</div>
+                        <div class="flow-step" style="width:100%;border-color:rgba(255,107,53,0.3);">Load Balancer</div>
+                        <div class="flow-arrow">↓</div>
+                        <div class="flow-step" style="width:100%;border-color:rgba(255,107,53,0.5);color:#ff9566;">NGINX Ingress Controller<br><span style="font-size:0.65rem;color:#5a8c66;">annotation-driven config</span></div>
+                        <div class="flow-arrow">↓</div>
+                        <div class="flow-step" style="width:100%;border-color:rgba(255,107,53,0.3);">Kubernetes Service</div>
+                        <div class="flow-arrow">↓</div>
+                        <div class="flow-step" style="width:100%;border-color:rgba(255,107,53,0.3);">Application Pods</div>
+                    </div>
+                </div>
+                <div class="reveal">
+                    <div style="font-size:0.8rem;font-weight:600;color:#00e5ff;font-family:'JetBrains Mono',monospace;margin-bottom:0.75rem;text-align:center;">Envoy Gateway (Target)</div>
+                    <div style="display:flex;flex-direction:column;align-items:center;gap:0.3rem;">
+                        <div class="flow-step" style="width:100%;border-color:rgba(0,229,255,0.3);">Client</div>
+                        <div class="flow-arrow" style="color:#00e5ff;">↓</div>
+                        <div class="flow-step" style="width:100%;border-color:rgba(0,229,255,0.3);">Load Balancer</div>
+                        <div class="flow-arrow" style="color:#00e5ff;">↓</div>
+                        <div class="flow-step" style="width:100%;border-color:rgba(0,229,255,0.5);color:#00e5ff;">Envoy Gateway / Proxy<br><span style="font-size:0.65rem;color:#5a8c66;">Gateway + HTTPRoute + Policies</span></div>
+                        <div class="flow-arrow" style="color:#00e5ff;">↓</div>
+                        <div class="flow-step" style="width:100%;border-color:rgba(0,229,255,0.3);">Kubernetes Service</div>
+                        <div class="flow-arrow" style="color:#00e5ff;">↓</div>
+                        <div class="flow-step" style="width:100%;border-color:rgba(0,229,255,0.3);">Application Pods</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SLIDE 9: PROBLEM STATEMENT -->
+    <div class="slide slide-9" data-slide="9">
+        <div class="gradient-mesh">
+            <div class="blob" style="width:450px;height:450px;top:-100px;right:-80px;background:#ff6b35;opacity:0.08;"></div>
+            <div class="blob" style="width:300px;height:300px;bottom:-70px;left:-50px;background:#00ff88;opacity:0.07;"></div>
+        </div>
+        <div class="terminal-grid"></div>
+        <div class="content">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:#3d6b4a;margin-bottom:0.5rem;" class="reveal"><span style="color:#ff6b35;">$</span> wc -l **/*.yaml | grep ingress | head -20</div>
+            <h2 style="font-family:'JetBrains Mono',monospace;font-size:clamp(1.5rem,3vw,2rem);font-weight:700;color:#ff6b35;margin-bottom:1rem;" class="reveal">06 // The Scale Problem</h2>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-bottom:1.2rem;">
+                <div style="background:rgba(255,107,53,0.06);border:1px solid rgba(255,107,53,0.25);border-radius:10px;padding:1.2rem;text-align:center;" class="reveal">
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:2.2rem;font-weight:800;color:#ff6b35;" data-count="100" data-suffix="">0</div>
+                    <div style="font-size:0.78rem;color:#a3d9af;margin-top:0.3rem;">Clients / Repo Sets</div>
+                    <div style="font-size:0.7rem;color:#5a8c66;font-family:'JetBrains Mono',monospace;">dev/qa/staging/prod/regions</div>
+                </div>
+                <div style="background:rgba(255,107,53,0.06);border:1px solid rgba(255,107,53,0.25);border-radius:10px;padding:1.2rem;text-align:center;" class="reveal">
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:2.2rem;font-weight:800;color:#ff6b35;" data-count="200" data-suffix=" SP">0</div>
+                    <div style="font-size:0.78rem;color:#a3d9af;margin-top:0.3rem;">Manual Story Points</div>
+                    <div style="font-size:0.7rem;color:#5a8c66;font-family:'JetBrains Mono',monospace;">100 repos × 2 SP each</div>
+                </div>
+                <div style="background:rgba(0,255,136,0.06);border:1px solid rgba(0,255,136,0.25);border-radius:10px;padding:1.2rem;text-align:center;" class="reveal">
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:2.2rem;font-weight:800;color:#00ff88;" data-count="50" data-suffix="%">0</div>
+                    <div style="font-size:0.78rem;color:#a3d9af;margin-top:0.3rem;">Effort Reduction</div>
+                    <div style="font-size:0.7rem;color:#5a8c66;font-family:'JetBrains Mono',monospace;">200 SP → 100 SP with agent</div>
+                </div>
+            </div>
+            <div style="background:rgba(255,107,53,0.04);border:1px solid rgba(255,107,53,0.2);border-radius:8px;padding:0.9rem 1.2rem;" class="reveal">
+                <div style="font-size:0.8rem;font-weight:600;color:#ff9566;margin-bottom:0.5rem;">Why Manual Migration Fails at Scale:</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.3rem 1.5rem;">
+                    <div style="font-size:0.78rem;color:#a3d9af;">▸ Different folder structures per repo</div>
+                    <div style="font-size:0.78rem;color:#a3d9af;">▸ Different naming conventions</div>
+                    <div style="font-size:0.78rem;color:#a3d9af;">▸ Different NGINX annotation usage</div>
+                    <div style="font-size:0.78rem;color:#a3d9af;">▸ Different TLS and host rules</div>
+                    <div style="font-size:0.78rem;color:#a3d9af;">▸ Different validation requirements</div>
+                    <div style="font-size:0.78rem;color:#a3d9af;">▸ Different PR review expectations</div>
+                </div>
+            </div>
+            <div style="margin-top:0.85rem;display:grid;grid-template-columns:1.2fr 0.8fr;gap:0.9rem;" class="reveal">
+                <div class="insight-box" style="border-left-color:#00e5ff;">
+                    <div class="insight-title" style="color:#00e5ff;">Automation target</div>
+                    <div class="insight-text">Move engineers from first-pass conversion work into review work. The agent prepares the branch and PR; engineers validate intent, platform constraints, and production readiness.</div>
+                </div>
+                <div class="code-block" style="font-size:0.7rem;line-height:1.65;">
+                    <div><span class="comment">manual:</span> 100 repos × 2 SP = <span class="value">200 SP</span></div>
+                    <div><span class="comment">agent:</span> 100 repos × 1 SP = <span class="value">100 SP</span></div>
+                    <div><span class="keyword">result:</span> review starts from generated PRs</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SLIDE 10: WHAT ARE AGENTS -->
+    <div class="slide slide-10" data-slide="10">
+        <div class="gradient-mesh">
+            <div class="blob" style="width:400px;height:400px;top:-80px;left:-60px;background:#00ff88;opacity:0.08;"></div>
+            <div class="blob" style="width:300px;height:300px;bottom:-60px;right:-50px;background:#00e5ff;opacity:0.07;"></div>
+        </div>
+        <div class="terminal-grid"></div>
+        <div class="content">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:#3d6b4a;margin-bottom:0.5rem;" class="reveal"><span style="color:#00ff88;">$</span> python -c "from agent import Agent; Agent.run()"</div>
+            <h2 style="font-family:'JetBrains Mono',monospace;font-size:clamp(1.5rem,3vw,2rem);font-weight:700;color:#00ff88;margin-bottom:1rem;" class="reveal">07 // What Are AI Agents?</h2>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;">
+                <div>
+                    <p style="font-size:0.85rem;color:#a3d9af;margin-bottom:1rem;line-height:1.7;" class="reveal">An AI agent is an <strong style="color:#00ff88;">LLM-driven system</strong> that reasons about a task, chooses tools, observes results, and continues until the goal is complete.</p>
+                    <div style="display:flex;flex-direction:column;gap:0.4rem;" class="reveal">
+                        <div style="display:flex;align-items:center;gap:0.75rem;background:rgba(0,255,136,0.04);border:1px solid rgba(0,255,136,0.12);border-radius:6px;padding:0.5rem 0.9rem;">
+                            <span style="color:#00ff88;font-size:0.75rem;font-weight:700;">01</span>
+                            <span style="font-size:0.8rem;color:#a3d9af;"><strong style="color:#e2fce8;">Read</strong> task context</span>
+                        </div>
+                        <div style="text-align:center;color:#5a8c66;font-size:0.9rem;">↓</div>
+                        <div style="display:flex;align-items:center;gap:0.75rem;background:rgba(0,255,136,0.04);border:1px solid rgba(0,255,136,0.12);border-radius:6px;padding:0.5rem 0.9rem;">
+                            <span style="color:#00e5ff;font-size:0.75rem;font-weight:700;">02</span>
+                            <span style="font-size:0.8rem;color:#a3d9af;"><strong style="color:#e2fce8;">Choose</strong> the right tool</span>
+                        </div>
+                        <div style="text-align:center;color:#5a8c66;font-size:0.9rem;">↓</div>
+                        <div style="display:flex;align-items:center;gap:0.75rem;background:rgba(0,255,136,0.04);border:1px solid rgba(0,255,136,0.12);border-radius:6px;padding:0.5rem 0.9rem;">
+                            <span style="color:#ff6b35;font-size:0.75rem;font-weight:700;">03</span>
+                            <span style="font-size:0.8rem;color:#a3d9af;"><strong style="color:#e2fce8;">Run</strong> the tool</span>
+                        </div>
+                        <div style="text-align:center;color:#5a8c66;font-size:0.9rem;">↓</div>
+                        <div style="display:flex;align-items:center;gap:0.75rem;background:rgba(0,255,136,0.04);border:1px solid rgba(0,255,136,0.12);border-radius:6px;padding:0.5rem 0.9rem;">
+                            <span style="color:#00ff88;font-size:0.75rem;font-weight:700;">04</span>
+                            <span style="font-size:0.8rem;color:#a3d9af;"><strong style="color:#e2fce8;">Repeat</strong> until goal reached</span>
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <div style="background:rgba(0,255,136,0.04);border:1px solid rgba(0,255,136,0.15);border-radius:10px;padding:1.2rem;" class="reveal">
+                        <div style="font-size:0.8rem;font-weight:600;color:#00ff88;margin-bottom:0.75rem;font-family:'JetBrains Mono',monospace;">// Why agents fit this problem:</div>
+                        <ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:0.5rem;">
+                            <li style="font-size:0.82rem;color:#a3d9af;display:flex;align-items:flex-start;gap:0.5rem;"><span style="color:#00ff88;margin-top:0.1rem;">✓</span> Work is <strong style="color:#e2fce8;">structured</strong> and repeatable</li>
+                            <li style="font-size:0.82rem;color:#a3d9af;display:flex;align-items:flex-start;gap:0.5rem;"><span style="color:#00ff88;margin-top:0.1rem;">✓</span> Each repo is <strong style="color:#e2fce8;">slightly different</strong> — needs reasoning</li>
+                            <li style="font-size:0.82rem;color:#a3d9af;display:flex;align-items:flex-start;gap:0.5rem;"><span style="color:#00ff88;margin-top:0.1rem;">✓</span> Tool-driven: <strong style="color:#e2fce8;">controlled blast radius</strong></li>
+                            <li style="font-size:0.82rem;color:#a3d9af;display:flex;align-items:flex-start;gap:0.5rem;"><span style="color:#00ff88;margin-top:0.1rem;">✓</span> Behavior from <strong style="color:#e2fce8;">skill files</strong>, not hardcoded scripts</li>
+                            <li style="font-size:0.82rem;color:#a3d9af;display:flex;align-items:flex-start;gap:0.5rem;"><span style="color:#00ff88;margin-top:0.1rem;">✓</span> Supports <strong style="color:#e2fce8;">OpenAI, Gemini, Ollama</strong> via LangChain</li>
+                        </ul>
+                    </div>
+                    <div style="margin-top:0.75rem;" class="reveal insight-box">
+                        <div class="insight-title">Guardrail</div>
+                        <div class="insight-text">The model decides the next action, but it only acts through curated tools: clone, convert, validate, push, PR, and review edits.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SLIDE 11: AGENT ARCHITECTURE -->
+    <div class="slide slide-11" data-slide="11">
+        <div class="gradient-mesh">
+            <div class="blob" style="width:400px;height:400px;top:-80px;right:-80px;background:#00ff88;opacity:0.07;"></div>
+            <div class="blob" style="width:300px;height:300px;bottom:-60px;left:-50px;background:#ff6b35;opacity:0.06;"></div>
+        </div>
+        <div class="terminal-grid"></div>
+        <div class="content">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:#3d6b4a;margin-bottom:0.5rem;" class="reveal"><span style="color:#00ff88;">$</span> tree apps/ --depth 2</div>
+            <h2 style="font-family:'JetBrains Mono',monospace;font-size:clamp(1.5rem,3vw,2rem);font-weight:700;color:#00ff88;margin-bottom:1rem;" class="reveal">08 // Agent Architecture & Components</h2>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;">
+                <div>
+                    <div style="font-size:0.78rem;color:#5a8c66;margin-bottom:0.5rem;font-family:'JetBrains Mono',monospace;" class="reveal">// Core Components:</div>
+                    <div style="display:flex;flex-direction:column;gap:0.4rem;" class="reveal">
+                        <div style="background:rgba(0,255,136,0.04);border:1px solid rgba(0,255,136,0.15);border-radius:6px;padding:0.6rem 0.9rem;display:flex;gap:0.75rem;">
+                            <span style="font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:#00ff88;min-width:120px;">apps/agent-api</span>
+                            <span style="font-size:0.75rem;color:#a3d9af;">FastAPI backend + agent runtime</span>
+                        </div>
+                        <div style="background:rgba(0,229,255,0.04);border:1px solid rgba(0,229,255,0.12);border-radius:6px;padding:0.6rem 0.9rem;display:flex;gap:0.75rem;">
+                            <span style="font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:#00e5ff;min-width:120px;">apps/agent-ui</span>
+                            <span style="font-size:0.75rem;color:#a3d9af;">Streamlit chatbot + migration UI</span>
+                        </div>
+                        <div style="background:rgba(255,107,53,0.04);border:1px solid rgba(255,107,53,0.12);border-radius:6px;padding:0.6rem 0.9rem;display:flex;gap:0.75rem;">
+                            <span style="font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:#ff9566;min-width:120px;">api/skills/</span>
+                            <span style="font-size:0.75rem;color:#a3d9af;">Task-specific migration skill files</span>
+                        </div>
+                        <div style="background:rgba(0,255,136,0.04);border:1px solid rgba(0,255,136,0.12);border-radius:6px;padding:0.6rem 0.9rem;display:flex;gap:0.75rem;">
+                            <span style="font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:#a3d9af;min-width:120px;">api/tools/</span>
+                            <span style="font-size:0.75rem;color:#a3d9af;">GitHub, conversion, validation tools</span>
+                        </div>
+                        <div style="background:rgba(0,255,136,0.04);border:1px solid rgba(0,255,136,0.12);border-radius:6px;padding:0.6rem 0.9rem;display:flex;gap:0.75rem;">
+                            <span style="font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:#a3d9af;min-width:120px;">agentic-app/</span>
+                            <span style="font-size:0.75rem;color:#a3d9af;">Helm chart for full deployment</span>
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <div style="font-size:0.78rem;color:#5a8c66;margin-bottom:0.5rem;font-family:'JetBrains Mono',monospace;" class="reveal">// Agent Loop (intentionally small):</div>
+                    <div class="code-block reveal" style="font-size:0.72rem;line-height:1.85;">
+                        <div><span class="comment">1.</span> Build context from API request</div>
+                        <div><span class="comment">2.</span> Load migration skill file</div>
+                        <div><span class="comment">3.</span> <span class="keyword">LLM</span> chooses next tool</div>
+                        <div><span class="comment">4.</span> Execute tool → store result</div>
+                        <div><span class="comment">5.</span> Feed result back to <span class="keyword">LLM</span></div>
+                        <div><span class="comment">6.</span> Repeat until PR step / end</div>
+                        <div>&nbsp;</div>
+                        <div><span class="comment"># Skill file drives behavior —</span></div>
+                        <div><span class="comment"># not hardcoded agent logic</span></div>
+                        <div><span class="value">migrate-nginx-to-envoy-skill.md</span></div>
+                    </div>
+                    <div style="margin-top:0.75rem;display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;" class="reveal">
+                        <div class="mini-pill">state stores plan + tool results</div>
+                        <div class="mini-pill">streaming emits step progress</div>
+                        <div class="mini-pill">PR body built from observations</div>
+                        <div class="mini-pill">stop condition after PR result</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SLIDE 12: AGENT TOOLS -->
+    <div class="slide slide-12" data-slide="12">
+        <div class="gradient-mesh">
+            <div class="blob" style="width:380px;height:380px;top:-70px;left:-60px;background:#00e5ff;opacity:0.07;"></div>
+            <div class="blob" style="width:280px;height:280px;bottom:-50px;right:-40px;background:#00ff88;opacity:0.07;"></div>
+        </div>
+        <div class="terminal-grid"></div>
+        <div class="content">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:#3d6b4a;margin-bottom:0.5rem;" class="reveal"><span style="color:#00e5ff;">$</span> agent list-tools --verbose</div>
+            <h2 style="font-family:'JetBrains Mono',monospace;font-size:clamp(1.5rem,3vw,2rem);font-weight:700;color:#00e5ff;margin-bottom:1rem;" class="reveal">09 // Agent Toolbox</h2>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.75rem;" class="reveal">
+                <div style="background:rgba(0,229,255,0.05);border:1px solid rgba(0,229,255,0.2);border-radius:8px;padding:0.9rem;">
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:#00e5ff;font-weight:600;margin-bottom:0.3rem;">load_skill</div>
+                    <div style="font-size:0.75rem;color:#5a8c66;">Loads the right skill file for the migration task type</div>
+                </div>
+                <div style="background:rgba(0,255,136,0.05);border:1px solid rgba(0,255,136,0.2);border-radius:8px;padding:0.9rem;">
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:#00ff88;font-weight:600;margin-bottom:0.3rem;">clone_repo</div>
+                    <div style="font-size:0.75rem;color:#5a8c66;">Clones target repo, creates migration branch</div>
+                </div>
+                <div style="background:rgba(255,107,53,0.05);border:1px solid rgba(255,107,53,0.2);border-radius:8px;padding:0.9rem;">
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:#ff9566;font-weight:600;margin-bottom:0.3rem;">convert_ingress</div>
+                    <div style="font-size:0.75rem;color:#5a8c66;">Converts NGINX Ingress → Gateway API resources</div>
+                </div>
+                <div style="background:rgba(0,229,255,0.05);border:1px solid rgba(0,229,255,0.2);border-radius:8px;padding:0.9rem;">
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:#00e5ff;font-weight:600;margin-bottom:0.3rem;">validate_yaml</div>
+                    <div style="font-size:0.75rem;color:#5a8c66;">Validates generated Kubernetes YAML manifests</div>
+                </div>
+                <div style="background:rgba(0,255,136,0.05);border:1px solid rgba(0,255,136,0.2);border-radius:8px;padding:0.9rem;">
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:#00ff88;font-weight:600;margin-bottom:0.3rem;">push_branch</div>
+                    <div style="font-size:0.75rem;color:#5a8c66;">Commits and pushes the migration branch to remote</div>
+                </div>
+                <div style="background:rgba(255,107,53,0.05);border:1px solid rgba(255,107,53,0.2);border-radius:8px;padding:0.9rem;">
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:#ff9566;font-weight:600;margin-bottom:0.3rem;">create_github_pr</div>
+                    <div style="font-size:0.75rem;color:#5a8c66;">Opens or updates a GitHub PR with migration summary</div>
+                </div>
+                <div style="background:rgba(0,229,255,0.05);border:1px solid rgba(0,229,255,0.2);border-radius:8px;padding:0.9rem;grid-column:span 3;">
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:#a3d9af;font-weight:600;margin-bottom:0.3rem;">modify_yaml_file</div>
+                    <div style="font-size:0.75rem;color:#5a8c66;">Applies review-driven YAML corrections from PR feedback — enables human-in-the-loop iteration</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SLIDE 13: WALKTHROUGH -->
+    <div class="slide slide-13" data-slide="13">
+        <div class="gradient-mesh">
+            <div class="blob" style="width:420px;height:420px;top:-80px;right:-70px;background:#00ff88;opacity:0.08;"></div>
+            <div class="blob" style="width:280px;height:280px;bottom:-60px;left:-40px;background:#ff6b35;opacity:0.07;"></div>
+        </div>
+        <div class="terminal-grid"></div>
+        <div class="content">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:#3d6b4a;margin-bottom:0.5rem;" class="reveal"><span style="color:#00ff88;">$</span> agent run --repo retail-platform --skill nginx-to-envoy</div>
+            <h2 style="font-family:'JetBrains Mono',monospace;font-size:clamp(1.5rem,3vw,2rem);font-weight:700;color:#00ff88;margin-bottom:1rem;" class="reveal">10 // Agent Walkthrough (Retail Platform)</h2>
+            <div style="background:rgba(0,0,0,0.4);border:1px solid rgba(0,255,136,0.15);border-radius:10px;padding:1.2rem;font-family:'JetBrains Mono',monospace;font-size:0.73rem;" class="reveal">
+                <div style="color:#5a8c66;margin-bottom:0.5rem;">// Example request:</div>
+                <div style="color:#00e5ff;">Migrate https://github.com/example/retail-platform.git</div>
+                <div style="color:#a3d9af;">path: k8s/overlays/prod/ingress  |  branch: agentic-gateway-migration</div>
+                <div style="color:#3d6b4a;margin-top:0.4rem;">local demo repo: example://retail-platform</div>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.5rem;margin-top:0.9rem;" class="reveal">
+                <div style="background:rgba(0,255,136,0.04);border:1px solid rgba(0,255,136,0.2);border-radius:7px;padding:0.7rem;text-align:center;">
+                    <div style="font-size:0.78rem;margin-bottom:0.3rem;font-weight:700;">01</div>
+                    <div style="font-size:0.68rem;font-family:'JetBrains Mono',monospace;color:#00ff88;margin-bottom:0.2rem;">load_skill</div>
+                    <div style="font-size:0.65rem;color:#5a8c66;">Load migration skill</div>
+                </div>
+                <div style="background:rgba(0,229,255,0.04);border:1px solid rgba(0,229,255,0.2);border-radius:7px;padding:0.7rem;text-align:center;">
+                    <div style="font-size:0.78rem;margin-bottom:0.3rem;font-weight:700;">02</div>
+                    <div style="font-size:0.68rem;font-family:'JetBrains Mono',monospace;color:#00e5ff;margin-bottom:0.2rem;">clone_repo</div>
+                    <div style="font-size:0.65rem;color:#5a8c66;">Clone + create branch</div>
+                </div>
+                <div style="background:rgba(255,107,53,0.04);border:1px solid rgba(255,107,53,0.2);border-radius:7px;padding:0.7rem;text-align:center;">
+                    <div style="font-size:0.78rem;margin-bottom:0.3rem;font-weight:700;">03</div>
+                    <div style="font-size:0.68rem;font-family:'JetBrains Mono',monospace;color:#ff9566;margin-bottom:0.2rem;">convert_ingress</div>
+                    <div style="font-size:0.65rem;color:#5a8c66;">NGINX → Gateway YAML</div>
+                </div>
+                <div style="background:rgba(0,255,136,0.04);border:1px solid rgba(0,255,136,0.2);border-radius:7px;padding:0.7rem;text-align:center;">
+                    <div style="font-size:0.78rem;margin-bottom:0.3rem;font-weight:700;">04</div>
+                    <div style="font-size:0.68rem;font-family:'JetBrains Mono',monospace;color:#00ff88;margin-bottom:0.2rem;">validate_yaml</div>
+                    <div style="font-size:0.65rem;color:#5a8c66;">Schema validation</div>
+                </div>
+                <div style="background:rgba(0,229,255,0.04);border:1px solid rgba(0,229,255,0.2);border-radius:7px;padding:0.7rem;text-align:center;grid-column:span 2;">
+                    <div style="font-size:0.78rem;margin-bottom:0.3rem;font-weight:700;">05</div>
+                    <div style="font-size:0.68rem;font-family:'JetBrains Mono',monospace;color:#00e5ff;margin-bottom:0.2rem;">push_branch</div>
+                    <div style="font-size:0.65rem;color:#5a8c66;">Commit & push migration changes</div>
+                </div>
+                <div style="background:rgba(255,107,53,0.04);border:1px solid rgba(255,107,53,0.2);border-radius:7px;padding:0.7rem;text-align:center;grid-column:span 2;">
+                    <div style="font-size:0.78rem;margin-bottom:0.3rem;font-weight:700;">06</div>
+                    <div style="font-size:0.68rem;font-family:'JetBrains Mono',monospace;color:#ff9566;margin-bottom:0.2rem;">create_github_pr</div>
+                    <div style="font-size:0.65rem;color:#5a8c66;">PR with reviewer-friendly migration summary</div>
+                </div>
+            </div>
+            <div style="margin-top:0.8rem;background:rgba(0,229,255,0.04);border:1px solid rgba(0,229,255,0.15);border-radius:8px;padding:0.75rem 1rem;" class="reveal">
+                <div style="font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:#00e5ff;margin-bottom:0.35rem;">// PR summary must include:</div>
+                <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:0.35rem;">
+                    <div style="font-size:0.66rem;color:#a3d9af;">Ingress files</div>
+                    <div style="font-size:0.66rem;color:#a3d9af;">Source behavior</div>
+                    <div style="font-size:0.66rem;color:#a3d9af;">Generated resources</div>
+                    <div style="font-size:0.66rem;color:#a3d9af;">Validation logs</div>
+                    <div style="font-size:0.66rem;color:#a3d9af;">Manual review notes</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SLIDE 14: SETUP & LLM PROVIDERS -->
+    <div class="slide slide-14" data-slide="14">
+        <div class="gradient-mesh">
+            <div class="blob" style="width:380px;height:380px;top:-60px;left:-60px;background:#ff6b35;opacity:0.07;"></div>
+            <div class="blob" style="width:300px;height:300px;bottom:-60px;right:-50px;background:#00e5ff;opacity:0.07;"></div>
+        </div>
+        <div class="terminal-grid"></div>
+        <div class="content">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:#3d6b4a;margin-bottom:0.5rem;" class="reveal"><span style="color:#ff6b35;">$</span> cat .env && uvicorn main:app --reload</div>
+            <h2 style="font-family:'JetBrains Mono',monospace;font-size:clamp(1.5rem,3vw,2rem);font-weight:700;color:#ff6b35;margin-bottom:1rem;" class="reveal">11 // Setup & LLM Providers</h2>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;">
+                <div>
+                    <div style="font-size:0.78rem;color:#5a8c66;margin-bottom:0.5rem;font-family:'JetBrains Mono',monospace;" class="reveal">// Run locally:</div>
+                    <div class="code-block reveal" style="font-size:0.72rem;line-height:1.85;margin-bottom:0.75rem;">
+                        <div><span class="comment"># Start the API</span></div>
+                        <div><span class="keyword">cd</span> apps/agent-api</div>
+                        <div>pip install -r requirements.txt</div>
+                        <div>uvicorn main:app <span class="value">--reload</span></div>
+                        <div>&nbsp;</div>
+                        <div><span class="comment"># Start the UI</span></div>
+                        <div><span class="keyword">cd</span> apps/agent-ui</div>
+                        <div>pip install -r requirements.txt</div>
+                        <div>streamlit run app.py</div>
+                    </div>
+                    <div class="code-block reveal" style="font-size:0.72rem;line-height:1.85;">
+                        <div><span class="comment"># GitHub integration</span></div>
+                        <div><span class="keyword">export</span> GITHUB_TOKEN=<span class="value">"your-token"</span></div>
+                    </div>
+                </div>
+                <div>
+                    <div style="font-size:0.78rem;color:#5a8c66;margin-bottom:0.5rem;font-family:'JetBrains Mono',monospace;" class="reveal">// LLM Provider support (LangChain):</div>
+                    <div style="display:flex;flex-direction:column;gap:0.5rem;" class="reveal">
+                        <div style="background:rgba(0,255,136,0.05);border:1px solid rgba(0,255,136,0.2);border-radius:7px;padding:0.75rem 1rem;">
+                            <div style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:#00ff88;font-weight:600;">OpenAI</div>
+                            <div style="font-size:0.72rem;color:#5a8c66;font-family:'JetBrains Mono',monospace;">MIGRATION_LLM_PROVIDER=openai</div>
+                        </div>
+                        <div style="background:rgba(0,229,255,0.05);border:1px solid rgba(0,229,255,0.2);border-radius:7px;padding:0.75rem 1rem;">
+                            <div style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:#00e5ff;font-weight:600;">Gemini</div>
+                            <div style="font-size:0.72rem;color:#5a8c66;font-family:'JetBrains Mono',monospace;">MIGRATION_LLM_PROVIDER=gemini</div>
+                        </div>
+                        <div style="background:rgba(255,107,53,0.05);border:1px solid rgba(255,107,53,0.2);border-radius:7px;padding:0.75rem 1rem;">
+                            <div style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:#ff9566;font-weight:600;">Ollama (Local)</div>
+                            <div style="font-size:0.72rem;color:#5a8c66;font-family:'JetBrains Mono',monospace;">MIGRATION_LLM_PROVIDER=ollama</div>
+                            <div style="font-size:0.7rem;color:#3d6b4a;font-family:'JetBrains Mono',monospace;">MIGRATION_LLM_MODEL=llama3.1</div>
+                            <div style="font-size:0.7rem;color:#3d6b4a;font-family:'JetBrains Mono',monospace;">OLLAMA_BASE_URL=http://localhost:11434</div>
+                            <div style="font-size:0.7rem;color:#3d6b4a;font-family:'JetBrains Mono',monospace;">ollama pull llama3.1 && ollama serve</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SLIDE 15: CLOSING -->
+    <div class="slide slide-15" data-slide="15">
+        <div class="gradient-mesh">
+            <div class="blob" style="width:550px;height:550px;top:-120px;right:-100px;background:#00ff88;opacity:0.12;"></div>
+            <div class="blob" style="width:380px;height:380px;bottom:-90px;left:-70px;background:#00e5ff;opacity:0.09;"></div>
+            <div class="blob" style="width:280px;height:280px;top:40%;left:15%;background:#ff6b35;opacity:0.08;"></div>
+        </div>
+        <div class="terminal-grid"></div>
+        <div class="content text-center">
+            <div style="font-size:0.78rem;letter-spacing:2px;text-transform:uppercase;margin-bottom:1rem;font-weight:700;" class="reveal">Target Operating Model</div>
+            <h1 style="font-family:'JetBrains Mono',monospace;font-size:clamp(2rem,5vw,3.5rem);font-weight:800;background:linear-gradient(135deg,#00ff88,#00e5ff,#00ff88);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:0.75rem;" class="reveal glow-pulse">Review-Ready Migration PRs</h1>
+            <p style="font-size:clamp(0.85rem,1.5vw,1.1rem);color:#5a8c66;letter-spacing:4px;text-transform:uppercase;font-family:'JetBrains Mono',monospace;margin-bottom:1.5rem;" class="reveal">Engineers review. Agents do the groundwork.</p>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.75rem;max-width:700px;margin:0 auto;" class="reveal">
+                <div style="background:rgba(0,255,136,0.06);border:1px solid rgba(0,255,136,0.2);border-radius:8px;padding:0.9rem;text-align:center;">
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:1.6rem;font-weight:800;color:#00ff88;" data-count="200" data-suffix=" SP">0</div>
+                    <div style="font-size:0.7rem;color:#5a8c66;">before automation</div>
+                </div>
+                <div style="background:rgba(255,107,53,0.06);border:1px solid rgba(255,107,53,0.2);border-radius:8px;padding:0.9rem;text-align:center;">
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:1.6rem;font-weight:800;color:#ff6b35;">→</div>
+                    <div style="font-size:0.7rem;color:#5a8c66;">agent migration</div>
+                </div>
+                <div style="background:rgba(0,229,255,0.06);border:1px solid rgba(0,229,255,0.2);border-radius:8px;padding:0.9rem;text-align:center;">
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:1.6rem;font-weight:800;color:#00e5ff;" data-count="100" data-suffix=" SP">0</div>
+                    <div style="font-size:0.7rem;color:#5a8c66;">with automation</div>
+                </div>
+            </div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:0.78rem;color:#3d6b4a;margin-top:1.5rem;" class="reveal">
+                <span style="color:#00ff88;">[</span> FastAPI <span style="color:#5a8c66;">·</span> Streamlit <span style="color:#5a8c66;">·</span> LangChain <span style="color:#5a8c66;">·</span> OpenAI/Gemini/Ollama <span style="color:#5a8c66;">·</span> Kubernetes Gateway API <span style="color:#5a8c66;">·</span> Envoy Proxy <span style="color:#00ff88;">]</span>
+                <span style="animation:cursor-blink 1s ease-in-out infinite;color:#00ff88;"> █</span>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- NAVIGATION -->
+<div class="nav-controls">
+    <button class="nav-btn" onclick="changeSlide(-1)">&#8249;</button>
+    <div class="slide-dots" id="dots"></div>
+    <button class="nav-btn" onclick="changeSlide(1)">&#8250;</button>
+    <span class="slide-counter" id="counter">1 / 15</span>
+</div>
+
+<script>
+    let current = 1;
+    const total = document.querySelectorAll('.slide').length;
+    const dotsContainer = document.getElementById('dots');
+    const counter = document.getElementById('counter');
+    for (let i = 1; i <= total; i++) { const dot = document.createElement('div'); dot.className = 'dot' + (i === 1 ? ' active' : ''); dot.onclick = () => goToSlide(i); dotsContainer.appendChild(dot); }
+
+    function goToSlide(n) {
+        const prev = document.querySelector('.slide.active');
+        const next = document.querySelector('.slide[data-slide="' + n + '"]');
+        if (prev) prev.classList.remove('active');
+        if (next) { next.classList.add('active'); animateSlide(next); }
+        current = n; updateNav();
+    }
+    function changeSlide(dir) { let next = current + dir; if (next < 1) next = total; if (next > total) next = 1; goToSlide(next); }
+    function updateNav() { document.querySelectorAll('.dot').forEach((d, i) => d.classList.toggle('active', i + 1 === current)); counter.textContent = current + ' / ' + total; }
+    document.addEventListener('keydown', (e) => { if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); changeSlide(1); } if (e.key === 'ArrowLeft') { e.preventDefault(); changeSlide(-1); } });
+    let touchStartX = 0;
+    document.addEventListener('touchstart', (e) => { touchStartX = e.touches[0].clientX; });
+    document.addEventListener('touchend', (e) => { const diff = touchStartX - e.changedTouches[0].clientX; if (Math.abs(diff) > 50) changeSlide(diff > 0 ? 1 : -1); });
+
+    function animateSlide(slide) {
+        slide.querySelectorAll('.reveal').forEach((el, i) => {
+            el.style.transition = 'none'; el.style.opacity = '0'; el.style.transform = 'translateY(20px)';
+            el.offsetHeight;
+            const delay = i * 0.08;
+            el.style.transition = 'opacity 0.35s ease ' + delay + 's, transform 0.35s ease ' + delay + 's';
+            el.style.opacity = '1'; el.style.transform = 'translateY(0px)';
+        });
+        animateSlideEffects(slide);
+    }
+
+    function animateSlideEffects(slide) {
+        slide.querySelectorAll('[data-count]:not(.counted)').forEach(el => {
+            el.classList.add('counted');
+            const target = parseInt(el.dataset.count), suffix = el.dataset.suffix || '', prefix = el.dataset.prefix || '';
+            let cur = 0; const step = target / 40;
+            const timer = setInterval(() => { cur += step; if (cur >= target) { cur = target; clearInterval(timer); } el.textContent = prefix + Math.round(cur).toLocaleString() + suffix; }, 30);
+        });
+        slide.querySelectorAll('.bar-fill:not(.fill-init)').forEach((bar, i) => {
+            bar.classList.add('fill-init');
+            bar.style.width = '0%'; bar.style.transition = 'width 0.5s ease ' + (i * 0.08) + 's'; bar.offsetHeight; bar.style.width = bar.dataset.width + '%';
+        });
+    }
+
+    try { animateSlide(document.querySelector('.slide.active')); } catch(e) { console.warn('Init animation error:', e); }
+</script>
+</body>
+</html>

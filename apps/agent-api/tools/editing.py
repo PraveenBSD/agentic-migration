@@ -10,7 +10,15 @@ from .common import WORKSPACE_ROOT
 
 @tool
 def modify_yaml_file(file_path: str, updated_content: str) -> str:
-    """Overwrite a YAML manifest inside the active workspace with updated content."""
+    """Overwrite one YAML manifest inside the migration workspace with corrected YAML content.
+
+    Use this only when a review comment or validation error requires a manual YAML fix after cloning/conversion.
+    Args:
+        file_path: Absolute path to an existing or new YAML file under the migration workspace.
+        updated_content: Complete replacement YAML content for the file.
+    Returns:
+        Path of the file that was updated.
+    """
     path = Path(file_path).resolve()
     if not str(path).startswith(str(WORKSPACE_ROOT.resolve())):
         raise ValueError("Refusing to modify files outside the migration workspace")

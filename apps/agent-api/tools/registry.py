@@ -3,9 +3,11 @@ from __future__ import annotations
 from .conversion import convert_ingress
 from .editing import modify_yaml_file
 from .github import clone_repo, create_github_pr, push_branch
+from .skills import load_skill
 from .validation import validate_yaml
 
 TOOLS = [
+    load_skill,
     clone_repo,
     convert_ingress,
     modify_yaml_file,

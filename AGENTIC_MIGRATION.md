@@ -44,6 +44,20 @@ AGENT.execute(state)
 
 The agent adds a suggested branch name if one was not provided, sends the context to the LLM, and starts the tool loop.
 
+## LLM Providers
+
+The API can use OpenAI, Gemini, or Ollama through LangChain-compatible chat models.
+
+For local Ollama, set:
+
+```bash
+export MIGRATION_LLM_PROVIDER=ollama
+export MIGRATION_LLM_MODEL=llama3.1
+export OLLAMA_BASE_URL=http://localhost:11434
+```
+
+The selected Ollama model must support tool/function calling so the agent can call `clone_repo`, `convert_ingress`, `validate_yaml`, and the other registered tools.
+
 ## Tool Loop
 
 The agent supports native LangChain tool calls and a text fallback format.

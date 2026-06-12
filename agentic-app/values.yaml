@@ -13,6 +13,7 @@ api:
   env:
     MIGRATION_LLM_PROVIDER: openai
     MIGRATION_LLM_MODEL: gpt-4o
+    OLLAMA_BASE_URL: http://ollama:11434
     MIGRATION_WORKSPACE_ROOT: /tmp/gitops-migration-workspaces
     MIGRATION_EXAMPLES_ROOT: /examples
   secretEnv:

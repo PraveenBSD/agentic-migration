@@ -1,22 +1,22 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: proxy-timeout-ingress
+  name: rate-limited-ingress
   namespace: default
   annotations:
     kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/proxy-connect-timeout: "15"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "90"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "90"
+    nginx.ingress.kubernetes.io/limit-rps: "10"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "3"
+    nginx.ingress.kubernetes.io/limit-connections: "20"
 spec:
   rules:
-    - host: timeout.example.com
+    - host: rate-limit.example.com
       http:
         paths:
-          - path: /slow
+          - path: /api
             pathType: Prefix
             backend:
               service:
-                name: slow-service
+                name: api-service
                 port:
                   number: 8080

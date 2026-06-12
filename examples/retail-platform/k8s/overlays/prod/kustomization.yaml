@@ -5,4 +5,18 @@ resources:
   - ../../base/namespace.yaml
   - ../../base/deployment.yaml
   - ../../base/service.yaml
+  - ingress/ingress-basic-path.yaml
+  - ingress/ingress-cors.yaml
+  - ingress/ingress-gzip-compression.yaml
+  - ingress/ingress-header-modification.yaml
+  - ingress/ingress-host-only.yaml
+  - ingress/ingress-ip-whitelist.yaml
+  - ingress/ingress-method-restriction.yaml
+  - ingress/ingress-multiple-backends.yaml
+  - ingress/ingress-proxy-body-size.yaml
+  - ingress/ingress-proxy-timeout.yaml
+  - ingress/ingress-rate-limiting.yaml
+  - ingress/ingress-rewrite-target.yaml
+  - ingress/ingress-ssl-redirect.yaml
+  - ingress/ingress-underscores-headers.yaml
   - ingress/ingress.yaml

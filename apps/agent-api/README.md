@@ -28,10 +28,11 @@ export MIGRATION_EXAMPLES_ROOT=/path/to/agentic-migration/examples
 
 ## Environment
 
-- `MIGRATION_LLM_PROVIDER`: `openai` or `gemini`
+- `MIGRATION_LLM_PROVIDER`: `openai`, `gemini`, or `ollama`
 - `MIGRATION_LLM_MODEL`: model name for the selected provider
 - `OPENAI_API_KEY`: required for OpenAI
 - `GOOGLE_API_KEY`: required for Gemini
+- `OLLAMA_BASE_URL`: Ollama server URL, defaults to `http://localhost:11434`
 - `GITHUB_TOKEN`: optional token for branch push and PR creation
 - `GITHUB_WEBHOOK_SECRET`: optional webhook signature secret
 - `MIGRATION_WORKSPACE_ROOT`: workspace and default SQLite location
@@ -54,3 +55,15 @@ docker run --rm -p 8000:8000 \
   -e OPENAI_API_KEY="$OPENAI_API_KEY" \
   agent-api:local
 ```
+
+For Ollama running on the host machine:
+
+```bash
+docker run --rm -p 8000:8000 \
+  -e MIGRATION_LLM_PROVIDER=ollama \
+  -e MIGRATION_LLM_MODEL=llama3.1 \
+  -e OLLAMA_BASE_URL=http://host.docker.internal:11434 \
+  agent-api:local
+```
+
+Use an Ollama model that supports tool/function calling.

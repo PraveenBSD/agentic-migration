@@ -1,8 +1,6 @@
 # AI GitOps Agent For Ingress To Gateway Migration
 
-This project demonstrates how an AI GitOps agent can migrate Kubernetes NGINX Ingress manifests to Envoy Gateway / Gateway API across many Git repositories.
-
-Think of this README as a short presentation for readers who want to understand the problem, the platform shift, and how the agent solves it.
+This document is a presentation-style walkthrough of why Kubernetes teams migrate from NGINX Ingress to Gateway API / Envoy Gateway, and how an AI GitOps agent can automate that migration across many repositories.
 
 ---
 
@@ -79,6 +77,40 @@ In this project, Envoy Gateway is the target runtime for migrated NGINX Ingress 
 
 ---
 
+## 3.1 Envoy Gateway Policy Model
+
+Gateway API describes the core routing model with resources like `Gateway` and `HTTPRoute`.
+
+Envoy Gateway extends this with policy resources that attach operational behavior to Gateways, Routes, and backend Services.
+
+Important policy concepts:
+
+| Policy | What It Controls | Example Use |
+| --- | --- | --- |
+| `BackendTrafficPolicy` | Traffic behavior between Envoy and backend services | Rate limiting, retries, timeouts, circuit breaking, load balancing |
+| `SecurityPolicy` | Security behavior for traffic entering through Gateway routes | CORS, JWT auth, external auth, authorization rules, IP filtering depending on configuration |
+| `BackendTLSPolicy` | TLS settings from the gateway/proxy to backend services | Originate TLS to upstream services, configure backend certificate validation |
+| `ClientTrafficPolicy` | Client-facing connection and request behavior at the Gateway edge | Header handling, client connection behavior, protocol options |
+| `EnvoyPatchPolicy` | Low-level Envoy xDS patching for features not modeled by higher-level APIs | Advanced Envoy filters such as custom compression or specialized listener/filter behavior |
+| Gateway / Route filters | Request and response behavior at route level | URL rewrites, redirects, header modification |
+
+This policy model is important because many NGINX Ingress behaviors are hidden inside annotations. In Envoy Gateway, the goal is to express that behavior as typed Kubernetes resources.
+
+Example:
+
+```text
+NGINX Ingress annotation
+  nginx.ingress.kubernetes.io/proxy-read-timeout: "90"
+
+Envoy Gateway model
+  HTTPRoute for routing
+  BackendTrafficPolicy for timeout behavior
+```
+
+This makes the migration more than a syntax conversion. It is also a move from annotation-driven configuration to policy-driven configuration.
+
+---
+
 ## 4. Feature Usage: NGINX Ingress vs Envoy Gateway
 
 | Capability | NGINX Ingress | Envoy Gateway / Gateway API |
@@ -87,15 +119,36 @@ In this project, Envoy Gateway is the target runtime for migrated NGINX Ingress 
 | Backend service routing | Ingress backend service | `HTTPRoute.backendRefs` |
 | TLS termination | Ingress `tls` | `Gateway.listeners.tls` |
 | URL rewrite | NGINX annotation | `HTTPRoute` filters where supported |
-| Header modification | NGINX snippets/annotations | `HTTPRoute` filters or Envoy policy |
-| Timeouts | NGINX annotations | Envoy policy or Gateway API implementation support |
-| Rate limiting | NGINX annotations | Envoy rate-limit policy/extensions |
-| CORS | NGINX annotations/snippets | Envoy policy/extensions |
-| IP allowlisting | NGINX annotations | Envoy security policy/extensions |
+| Header modification | NGINX snippets/annotations | `HTTPRoute` filters or `ClientTrafficPolicy` for gateway-level header handling |
+| Timeouts | NGINX annotations | `BackendTrafficPolicy` |
+| Rate limiting | NGINX annotations | `BackendTrafficPolicy` |
+| CORS | NGINX annotations/snippets | `SecurityPolicy` |
+| IP allowlisting | NGINX annotations | `SecurityPolicy` |
 | SSL redirect | NGINX annotation | Listener/route policy depending on implementation |
-| Gzip compression | NGINX snippet/config | Envoy compression policy/filter |
+| Gzip compression | NGINX snippet/config | `EnvoyPatchPolicy` when compression is not exposed through a higher-level policy |
 
 The important migration challenge is that not every NGINX annotation has a one-line Gateway API equivalent. Some behavior maps cleanly to `HTTPRoute`; other behavior needs Envoy Gateway policies or follow-up platform decisions.
+
+---
+
+## 4.1 Feature Migration Examples
+
+The table below shows how common NGINX Ingress features usually translate during migration.
+
+| Feature | NGINX Ingress Example | Envoy Gateway / Gateway API Direction | Migration Notes |
+| --- | --- | --- | --- |
+| URL rewrites | `nginx.ingress.kubernetes.io/rewrite-target: /$2` | `HTTPRoute` `URLRewrite` filter | Often maps cleanly when the rewrite is path-prefix or host based. Regex-heavy rewrites may need manual review. |
+| TLS redirect | `nginx.ingress.kubernetes.io/ssl-redirect: "true"` | `HTTPRoute` `RequestRedirect` filter | Usually represented as an HTTP-to-HTTPS redirect. Exact behavior depends on listener setup. |
+| Request size limits | `nginx.ingress.kubernetes.io/proxy-body-size: "20m"` | `BackendTrafficPolicy` with request buffering/body-size settings | In this project, body-size annotations map to `BackendTrafficPolicy` `requestBuffer.limit`. |
+| Timeouts | `proxy-read-timeout`, `proxy-send-timeout`, `proxy-connect-timeout` | `BackendTrafficPolicy` timeout settings | In this project, read timeout maps to `BackendTrafficPolicy` `timeout.http.requestTimeout`. Other timeout types may need review. |
+| Rate limiting | `limit-rps`, `limit-connections`, `limit-burst-multiplier` | `BackendTrafficPolicy` rate-limit settings | Simple route/backend rate limits belong in `BackendTrafficPolicy`. Global/distributed rate limits may need platform design. |
+| IP allowlists | `whitelist-source-range: "10.0.0.0/8"` | `SecurityPolicy` authorization rules | Source IP preservation must be checked with load balancer topology before relying on allowlists. |
+| CORS | `enable-cors`, `cors-allow-origin`, `cors-allow-methods` | `SecurityPolicy` CORS settings | Allowed origins, credentials, methods, and headers should be preserved exactly. |
+| Header modification | `configuration-snippet`, `proxy_set_header`, `more_set_headers` | `HTTPRoute` `RequestHeaderModifier` / `ResponseHeaderModifier`; `ClientTrafficPolicy` for gateway-level header behavior | Simple add/set/remove headers map well. Arbitrary NGINX snippets need review. |
+| Compression | NGINX `server-snippet` with `gzip on` | `EnvoyPatchPolicy` for compression filters when no higher-level policy is available | Compression usually needs Envoy filter-level configuration rather than a basic route match. |
+| Canary routing | `canary: "true"`, `canary-weight: "20"` | `HTTPRoute.backendRefs.weight` | Weighted backend routing maps well when the canary is percentage based. Header/cookie canaries need richer route matches. |
+
+The agent should identify these features in the source manifests and call out anything that cannot be converted exactly.
 
 ---
 
@@ -181,6 +234,36 @@ The organization needs a repeatable way to:
 7. Handle review feedback.
 
 This is a strong fit for AI agents because the work is structured, repetitive, repository-specific, and tool-driven.
+
+### What The Agent Achieves
+
+Without automation, assume one repository migration takes around 2 story points:
+
+```text
+100 repositories x 2 story points = 200 story points
+```
+
+With the GitOps agent, the first-pass migration work is automated:
+
+- Repository clone
+- Manifest discovery
+- Ingress-to-Gateway conversion
+- YAML validation
+- Branch creation
+- Pull request creation
+- PR summary generation
+
+Engineers can start directly from review instead of beginning from manual conversion.
+
+If review and verification take around 1 story point per repository:
+
+```text
+100 repositories x 1 story point = 100 story points
+```
+
+So the agent reduces the estimated effort from 200 story points to 100 story points.
+
+The value is not that the agent removes engineers from the process. The value is that engineers spend their time reviewing and validating the generated change instead of repeating the same migration steps across 100 repositories.
 
 ---
 

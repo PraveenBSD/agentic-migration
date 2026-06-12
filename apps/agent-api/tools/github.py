@@ -27,9 +27,46 @@ from .common import (
 )
 
 
+def _validate_pr_description(description: str) -> None:
+    description = (description or "").strip()
+    normalized = " ".join(description.lower().split())
+    placeholder_phrases = (
+        "migration summary from step",
+        "summary from step",
+        "see step",
+        "see above",
+        "as described above",
+        "tbd",
+        "todo",
+        "n/a",
+    )
+
+    if not description or any(phrase in normalized for phrase in placeholder_phrases):
+        raise ValueError(
+            "PR description must be the actual Markdown migration summary, not a "
+            "placeholder or reference to another step. Include the migration summary, "
+            "Ingress files found, Ingress behavior, Envoy/Gateway changes, and "
+            "validation result."
+        )
+
+    if len(description) < 80:
+        raise ValueError(
+            "PR description is too short. Provide the full Markdown migration summary "
+            "with source behavior, generated Envoy/Gateway changes, and validation result."
+        )
+
+
 @tool
 def clone_repo(repo_url: str, branch_name: str) -> str:
-    """Clone/copy a source repository and create a feature branch."""
+    """Start a migration run by cloning or copying the source repository into a workspace and creating a migration branch.
+
+    Call this first before conversion, validation, push, or PR creation.
+    Args:
+        repo_url: GitHub URL, local path, or bundled example URL such as example://retail-platform.
+        branch_name: New feature branch for this migration. Use the suggested migration branch from context; do not use main, master, or develop.
+    Returns:
+        Clone/copy logs and stores repository context for later tools under branch_name.
+    """
     branch_name = _safe_branch_name(branch_name)
     workspace = _workspace_for_branch(branch_name)
     repo_dir = workspace / _repo_name(repo_url)
@@ -54,7 +91,15 @@ def clone_repo(repo_url: str, branch_name: str) -> str:
 
 @tool
 def push_branch(branch_name: str, commit_message: str) -> str:
-    """Commit staged changes and push the feature branch to GitHub."""
+    """Commit converted manifests on the migration branch and push that branch to GitHub when possible.
+
+    Call this after convert_ingress and validate_yaml have completed.
+    Args:
+        branch_name: The same migration branch originally passed to clone_repo.
+        commit_message: Short description of the migration commit.
+    Returns:
+        A push result, local-commit result, or message explaining that no changes/token were available.
+    """
     context = get_run_context(branch_name)
     repo_dir = Path(context.get("repo_dir", ""))
     if not repo_dir.exists():
@@ -81,7 +126,19 @@ def push_branch(branch_name: str, commit_message: str) -> str:
 
 @tool
 def create_github_pr(repo_name: str, branch_name: str, title: str, description: str) -> str:
-    """Create a GitHub pull request for a pushed feature branch."""
+    """Create or update an open GitHub pull request for the pushed migration branch.
+
+    Call this after push_branch succeeds or reports that the branch is ready. This tool never closes or merges pull requests; it only opens a new PR or updates the title/body of an existing open PR.
+    Args:
+        repo_name: Repository full name in owner/repo form, for example teqade-admin/agentic-migration.
+        branch_name: The same migration branch used for clone_repo, convert_ingress, validate_yaml, and push_branch.
+        title: Concise pull request title.
+        description: Markdown PR body summarizing changed files, Ingress behavior, Envoy/Gateway API changes, and validation results.
+    Returns:
+        Pull request URL, existing PR update URL, or an explicit reason a PR cannot be created.
+    """
+    _validate_pr_description(description)
+
     context = get_run_context(branch_name)
     if context.get("is_local_source"):
         return f"Local migration commit on {branch_name} at {context.get('repo_dir')}. Local example sources are not pushed to GitHub."

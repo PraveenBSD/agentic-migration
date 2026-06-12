@@ -11,7 +11,14 @@ from .common import _find_yaml_files, _run
 
 @tool
 def validate_yaml(yaml_file_path: str) -> str:
-    """Validate Kubernetes YAML with kubeconform -strict, falling back to YAML parsing when kubeconform is absent."""
+    """Validate Kubernetes YAML files or directories produced by the migration.
+
+    Call this after convert_ingress. Use the real generated/modified path in the cloned workspace, specifically the validation_path saved by convert_ingress in run context. Never pass placeholders such as /path/to/your/manifest.yaml.
+    Args:
+        yaml_file_path: Existing absolute path to the generated or modified YAML file/directory in the migration workspace.
+    Returns:
+        kubeconform output when available, or YAML syntax validation output when kubeconform is absent.
+    """
     path = Path(yaml_file_path).resolve()
     if not path.exists():
         raise FileNotFoundError(str(path))

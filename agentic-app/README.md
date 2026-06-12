@@ -36,6 +36,19 @@ The API reads:
 - `GITHUB_TOKEN`
 - `GITHUB_WEBHOOK_SECRET`
 
+## Ollama
+
+To use a local or in-cluster Ollama server, set:
+
+```bash
+helm upgrade --install agentic-app ./agentic-app \
+  --set api.env.MIGRATION_LLM_PROVIDER=ollama \
+  --set api.env.MIGRATION_LLM_MODEL=llama3.1 \
+  --set api.env.OLLAMA_BASE_URL=http://ollama:11434
+```
+
+If Ollama runs on your workstation and the cluster can reach it, set `OLLAMA_BASE_URL` to that reachable address instead. The selected Ollama model must support tool/function calling.
+
 ## Services
 
 - API service: `<release-name>-agentic-app-api:8000`
