@@ -1,0 +1,42 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: retail-web
+  namespace: retail-prod
+spec:
+  parentRefs:
+    - name: envoy-gateway
+  hostnames:
+    - shop.example.internal
+  rules:
+    - matches:
+        - path:
+            type: RegularExpression
+            value: /()(.*)
+      timeouts:
+        request: 60s
+      backendRefs:
+        - name: storefront
+          port: 80
+    - matches:
+        - path:
+            type: RegularExpression
+            value: /api/orders(/|$)(.*)
+      timeouts:
+        request: 60s
+      backendRefs:
+        - name: orders-api
+          port: 80
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: retail-web-request-buffer
+  namespace: retail-prod
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: retail-web
+  requestBuffer:
+    limit: 25Mi
