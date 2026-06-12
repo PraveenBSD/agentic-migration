@@ -1,0 +1,47 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: method-restricted-ingress
+  namespace: default
+spec:
+  parentRefs:
+    - name: envoy-gateway
+  hostnames:
+    - methods.example.com
+  rules:
+    - matches:
+        - method: GET
+          path:
+            type: PathPrefix
+            value: /orders
+        - method: POST
+          path:
+            type: PathPrefix
+            value: /orders
+        - method: OPTIONS
+          path:
+            type: PathPrefix
+            value: /orders
+      backendRefs:
+        - name: orders-api
+          port: 8080
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: method-restricted-ingress-methods
+  namespace: default
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: method-restricted-ingress
+  authorization:
+    defaultAction: Deny
+    rules:
+      - action: Allow
+        operation:
+          methods:
+            - GET
+            - POST
+            - OPTIONS
