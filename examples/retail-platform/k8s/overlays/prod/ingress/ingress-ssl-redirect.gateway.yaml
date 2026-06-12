@@ -1,0 +1,76 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  annotations:
+    gateway.networking.k8s.io/generator: ingress2gateway-1.1.0
+  name: nginx
+  namespace: default
+spec:
+  gatewayClassName: nginx
+  listeners:
+  - hostname: redirect.example.com
+    name: redirect-example-com-http
+    port: 80
+    protocol: HTTP
+  - hostname: redirect.example.com
+    name: redirect-example-com-https
+    port: 443
+    protocol: HTTPS
+    tls:
+      certificateRefs:
+      - group: ""
+        kind: Secret
+        name: redirect-example-tls
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  annotations:
+    gateway.networking.k8s.io/generator: ingress2gateway-1.1.0
+  name: ssl-redirect-ingress-redirect-example-com
+  namespace: default
+spec:
+  hostnames:
+  - redirect.example.com
+  parentRefs:
+  - name: nginx
+    port: 443
+    sectionName: redirect-example-com-https
+  rules:
+  - backendRefs:
+    - name: storefront
+      port: 80
+    matches:
+    - path:
+        type: PathPrefix
+        value: /
+    name: rule-0
+status:
+  parents: []
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  annotations:
+    gateway.networking.k8s.io/generator: ingress2gateway-1.1.0
+  name: ssl-redirect-ingress-redirect-example-com-http
+  namespace: default
+spec:
+  hostnames:
+  - redirect.example.com
+  parentRefs:
+  - name: nginx
+    port: 80
+  rules:
+  - filters:
+    - requestRedirect:
+        scheme: https
+        statusCode: 308
+      type: RequestRedirect
+    matches:
+    - path:
+        type: PathPrefix
+        value: /
+    name: rule-0
+status:
+  parents: null
