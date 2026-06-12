@@ -1,0 +1,6 @@
+NGINX Ingress annotations to be converted:
+
+  ingressClassName: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/proxy-body-size: 10m
