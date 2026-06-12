@@ -1,20 +1,53 @@
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
 metadata:
-  name: proxy-body-size-ingress
-  namespace: default
   annotations:
-    kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/proxy-body-size: "20m"
+    gateway.networking.k8s.io/generator: ingress2gateway-1.1.0
+  name: nginx
+  namespace: default
 spec:
+  gatewayClassName: nginx
+  listeners:
+  - hostname: upload.example.com
+    name: upload-example-com-http
+    port: 80
+    protocol: HTTP
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  annotations:
+    gateway.networking.k8s.io/generator: ingress2gateway-1.1.0
+  name: proxy-body-size-ingress-upload-example-com
+  namespace: default
+spec:
+  hostnames:
+  - upload.example.com
+  parentRefs:
+  - name: nginx
   rules:
-    - host: upload.example.com
-      http:
-        paths:
-          - path: /upload
-            pathType: Prefix
-            backend:
-              service:
-                name: upload-service
-                port:
-                  number: 80
+  - backendRefs:
+    - name: upload-service
+      port: 80
+    matches:
+    - path:
+        type: PathPrefix
+        value: /upload
+    name: rule-0
+status:
+  parents: []
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: proxy-body-size-ingress-upload-example-com
+  namespace: default
+spec:
+  requestBuffer:
+    limit: 20Mi
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: proxy-body-size-ingress-upload-example-com
+status:
+  ancestors: null

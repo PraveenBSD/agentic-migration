@@ -1,26 +1,57 @@
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
 metadata:
-  name: cors-ingress
-  namespace: default
   annotations:
-    kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/enable-cors: "true"
-    nginx.ingress.kubernetes.io/cors-allow-origin: "https://shop.example.com,https://admin.example.com"
-    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, OPTIONS"
-    nginx.ingress.kubernetes.io/cors-allow-headers: "Authorization, Content-Type, X-Request-ID"
-    nginx.ingress.kubernetes.io/cors-expose-headers: "X-Trace-ID"
-    nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
-    nginx.ingress.kubernetes.io/cors-max-age: "86400"
+    gateway.networking.k8s.io/generator: ingress2gateway-1.1.0
+  name: nginx
+  namespace: default
 spec:
+  gatewayClassName: nginx
+  listeners:
+  - hostname: cors.example.com
+    name: cors-example-com-http
+    port: 80
+    protocol: HTTP
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  annotations:
+    gateway.networking.k8s.io/generator: ingress2gateway-1.1.0
+  name: cors-ingress-cors-example-com
+  namespace: default
+spec:
+  hostnames:
+  - cors.example.com
+  parentRefs:
+  - name: nginx
   rules:
-    - host: cors.example.com
-      http:
-        paths:
-          - path: /public-api
-            pathType: Prefix
-            backend:
-              service:
-                name: public-api
-                port:
-                  number: 8080
+  - backendRefs:
+    - name: public-api
+      port: 8080
+    filters:
+    - cors:
+        allowCredentials: true
+        allowHeaders:
+        - Authorization
+        - Content-Type
+        - X-Request-ID
+        allowMethods:
+        - GET
+        - POST
+        - PUT
+        - OPTIONS
+        allowOrigins:
+        - https://shop.example.com
+        - https://admin.example.com
+        exposeHeaders:
+        - X-Trace-ID
+        maxAge: 86400
+      type: CORS
+    matches:
+    - path:
+        type: PathPrefix
+        value: /public-api
+    name: rule-0
+status:
+  parents: []

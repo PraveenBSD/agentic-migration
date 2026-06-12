@@ -1,24 +1,38 @@
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
 metadata:
-  name: gzip-compression-ingress
-  namespace: default
   annotations:
-    kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/server-snippet: |
-      gzip on;
-      gzip_comp_level 5;
-      gzip_min_length 1024;
-      gzip_types text/plain text/css application/json application/javascript application/xml;
+    gateway.networking.k8s.io/generator: ingress2gateway-1.1.0
+  name: nginx
+  namespace: default
 spec:
+  gatewayClassName: nginx
+  listeners:
+  - hostname: assets.example.com
+    name: assets-example-com-http
+    port: 80
+    protocol: HTTP
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  annotations:
+    gateway.networking.k8s.io/generator: ingress2gateway-1.1.0
+  name: gzip-compression-ingress-assets-example-com
+  namespace: default
+spec:
+  hostnames:
+  - assets.example.com
+  parentRefs:
+  - name: nginx
   rules:
-    - host: assets.example.com
-      http:
-        paths:
-          - path: /assets
-            pathType: Prefix
-            backend:
-              service:
-                name: static-service
-                port:
-                  number: 80
+  - backendRefs:
+    - name: static-service
+      port: 80
+    matches:
+    - path:
+        type: PathPrefix
+        value: /assets
+    name: rule-0
+status:
+  parents: []
