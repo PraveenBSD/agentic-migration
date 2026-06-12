@@ -1,0 +1,60 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  annotations:
+    gateway.networking.k8s.io/generator: ingress2gateway-1.1.0
+  name: nginx
+  namespace: default
+spec:
+  gatewayClassName: nginx
+  listeners:
+  - hostname: private.example.com
+    name: private-example-com-http
+    port: 80
+    protocol: HTTP
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  annotations:
+    gateway.networking.k8s.io/generator: ingress2gateway-1.1.0
+  name: ip-whitelist-ingress-private-example-com
+  namespace: default
+spec:
+  hostnames:
+  - private.example.com
+  parentRefs:
+  - name: nginx
+  rules:
+  - backendRefs:
+    - name: admin-service
+      port: 8080
+    matches:
+    - path:
+        type: PathPrefix
+        value: /admin
+    name: rule-0
+status:
+  parents: []
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: ip-whitelist-ingress-private-example-com
+  namespace: default
+spec:
+  authorization:
+    defaultAction: Deny
+    rules:
+    - action: Allow
+      principal:
+        clientCIDRs:
+        - 10.0.0.0/8
+        - 192.168.0.0/16
+        - 203.0.113.10/32
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: ip-whitelist-ingress-private-example-com
+status:
+  ancestors: null

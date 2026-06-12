@@ -1,0 +1,77 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  annotations:
+    gateway.networking.k8s.io/generator: ingress2gateway-1.1.0
+  name: nginx
+  namespace: retail-prod
+spec:
+  gatewayClassName: nginx
+  listeners:
+  - hostname: shop.example.internal
+    name: shop-example-internal-http
+    port: 80
+    protocol: HTTP
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  annotations:
+    gateway.networking.k8s.io/generator: ingress2gateway-1.1.0
+  name: retail-web-shop-example-internal
+  namespace: retail-prod
+spec:
+  hostnames:
+  - shop.example.internal
+  parentRefs:
+  - name: nginx
+  rules:
+  - backendRefs:
+    - name: storefront
+      port: 80
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replaceFullPath: /$2
+          type: ReplaceFullPath
+    matches:
+    - path:
+        type: RegularExpression
+        value: (?i)/()(.*).*
+    name: rule-0
+    timeouts:
+      request: 10m0s
+  - backendRefs:
+    - name: orders-api
+      port: 80
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replaceFullPath: /$2
+          type: ReplaceFullPath
+    matches:
+    - path:
+        type: RegularExpression
+        value: (?i)/api/orders(/|$)(.*).*
+    name: rule-1
+    timeouts:
+      request: 10m0s
+status:
+  parents: []
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: retail-web-shop-example-internal
+  namespace: retail-prod
+spec:
+  requestBuffer:
+    limit: 25Mi
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: retail-web-shop-example-internal
+status:
+  ancestors: null
