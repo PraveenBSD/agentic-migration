@@ -1,25 +1,76 @@
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
 metadata:
-  name: ssl-redirect-ingress
-  namespace: default
   annotations:
-    kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    gateway.networking.k8s.io/generator: ingress2gateway-1.1.0
+  name: nginx
+  namespace: default
 spec:
-  tls:
-    - hosts:
-        - redirect.example.com
-      secretName: redirect-example-tls
+  gatewayClassName: nginx
+  listeners:
+  - hostname: redirect.example.com
+    name: redirect-example-com-http
+    port: 80
+    protocol: HTTP
+  - hostname: redirect.example.com
+    name: redirect-example-com-https
+    port: 443
+    protocol: HTTPS
+    tls:
+      certificateRefs:
+      - group: ""
+        kind: Secret
+        name: redirect-example-tls
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  annotations:
+    gateway.networking.k8s.io/generator: ingress2gateway-1.1.0
+  name: ssl-redirect-ingress-redirect-example-com
+  namespace: default
+spec:
+  hostnames:
+  - redirect.example.com
+  parentRefs:
+  - name: nginx
+    port: 443
+    sectionName: redirect-example-com-https
   rules:
-    - host: redirect.example.com
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: storefront
-                port:
-                  number: 80
+  - backendRefs:
+    - name: storefront
+      port: 80
+    matches:
+    - path:
+        type: PathPrefix
+        value: /
+    name: rule-0
+status:
+  parents: []
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  annotations:
+    gateway.networking.k8s.io/generator: ingress2gateway-1.1.0
+  name: ssl-redirect-ingress-redirect-example-com-http
+  namespace: default
+spec:
+  hostnames:
+  - redirect.example.com
+  parentRefs:
+  - name: nginx
+    port: 80
+  rules:
+  - filters:
+    - requestRedirect:
+        scheme: https
+        statusCode: 308
+      type: RequestRedirect
+    matches:
+    - path:
+        type: PathPrefix
+        value: /
+    name: rule-0
+status:
+  parents: null

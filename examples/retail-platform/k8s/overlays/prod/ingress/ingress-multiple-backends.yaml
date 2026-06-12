@@ -1,33 +1,54 @@
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
 metadata:
-  name: multi-backend-ingress
-  namespace: default
   annotations:
-    kubernetes.io/ingress.class: nginx
+    gateway.networking.k8s.io/generator: ingress2gateway-1.1.0
+  name: nginx
+  namespace: default
 spec:
+  gatewayClassName: nginx
+  listeners:
+  - hostname: multi.example.com
+    name: multi-example-com-http
+    port: 80
+    protocol: HTTP
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  annotations:
+    gateway.networking.k8s.io/generator: ingress2gateway-1.1.0
+  name: multi-backend-ingress-multi-example-com
+  namespace: default
+spec:
+  hostnames:
+  - multi.example.com
+  parentRefs:
+  - name: nginx
   rules:
-    - host: multi.example.com
-      http:
-        paths:
-          - path: /api
-            pathType: Prefix
-            backend:
-              service:
-                name: api-service
-                port:
-                  number: 80
-          - path: /static
-            pathType: Exact
-            backend:
-              service:
-                name: static-service
-                port:
-                  number: 8080
-          - path: /admin
-            pathType: Prefix
-            backend:
-              service:
-                name: admin-service
-                port:
-                  number: 80
+  - backendRefs:
+    - name: api-service
+      port: 80
+    matches:
+    - path:
+        type: PathPrefix
+        value: /api
+    name: rule-0
+  - backendRefs:
+    - name: static-service
+      port: 8080
+    matches:
+    - path:
+        type: Exact
+        value: /static
+    name: rule-1
+  - backendRefs:
+    - name: admin-service
+      port: 80
+    matches:
+    - path:
+        type: PathPrefix
+        value: /admin
+    name: rule-2
+status:
+  parents: []

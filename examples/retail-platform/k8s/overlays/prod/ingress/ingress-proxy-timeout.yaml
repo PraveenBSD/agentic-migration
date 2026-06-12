@@ -1,22 +1,40 @@
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
 metadata:
-  name: proxy-timeout-ingress
-  namespace: default
   annotations:
-    kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/proxy-connect-timeout: "15"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "90"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "90"
+    gateway.networking.k8s.io/generator: ingress2gateway-1.1.0
+  name: nginx
+  namespace: default
 spec:
+  gatewayClassName: nginx
+  listeners:
+  - hostname: timeout.example.com
+    name: timeout-example-com-http
+    port: 80
+    protocol: HTTP
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  annotations:
+    gateway.networking.k8s.io/generator: ingress2gateway-1.1.0
+  name: proxy-timeout-ingress-timeout-example-com
+  namespace: default
+spec:
+  hostnames:
+  - timeout.example.com
+  parentRefs:
+  - name: nginx
   rules:
-    - host: timeout.example.com
-      http:
-        paths:
-          - path: /slow
-            pathType: Prefix
-            backend:
-              service:
-                name: slow-service
-                port:
-                  number: 8080
+  - backendRefs:
+    - name: slow-service
+      port: 8080
+    matches:
+    - path:
+        type: PathPrefix
+        value: /slow
+    name: rule-0
+    timeouts:
+      request: 15m0s
+status:
+  parents: []
