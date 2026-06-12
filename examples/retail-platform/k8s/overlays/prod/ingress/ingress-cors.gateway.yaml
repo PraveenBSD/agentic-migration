@@ -1,0 +1,46 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: cors-ingress
+  namespace: default
+spec:
+  parentRefs:
+    - name: envoy-gateway
+  hostnames:
+    - cors.example.com
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /public-api
+      backendRefs:
+        - name: public-api
+          port: 8080
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: cors-ingress-cors
+  namespace: default
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: cors-ingress
+  cors:
+    allowOrigins:
+      - exact: https://shop.example.com
+      - exact: https://admin.example.com
+    allowMethods:
+      - GET
+      - POST
+      - PUT
+      - OPTIONS
+    allowHeaders:
+      - Authorization
+      - Content-Type
+      - X-Request-ID
+    exposeHeaders:
+      - X-Trace-ID
+    allowCredentials: true
+    maxAge: 86400s
