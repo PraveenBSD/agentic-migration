@@ -1,0 +1,80 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: retail-web
+  namespace: retail-prod
+spec:
+  parentRefs:
+    - name: envoy-gateway
+  hostnames:
+    - shop.example.internal
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api/orders
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: gateway.envoyproxy.io
+            kind: HTTPRouteFilter
+            name: retail-web-orders-regex-rewrite
+      timeouts:
+        request: 60s
+      backendRefs:
+        - name: orders-api
+          port: 80
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: gateway.envoyproxy.io
+            kind: HTTPRouteFilter
+            name: retail-web-root-regex-rewrite
+      timeouts:
+        request: 60s
+      backendRefs:
+        - name: storefront
+          port: 80
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: HTTPRouteFilter
+metadata:
+  name: retail-web-orders-regex-rewrite
+  namespace: retail-prod
+spec:
+  urlRewrite:
+    path:
+      type: ReplaceRegexMatch
+      replaceRegexMatch:
+        pattern: ^/api/orders(/|$)(.*)
+        substitution: /\2
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: HTTPRouteFilter
+metadata:
+  name: retail-web-root-regex-rewrite
+  namespace: retail-prod
+spec:
+  urlRewrite:
+    path:
+      type: ReplaceRegexMatch
+      replaceRegexMatch:
+        pattern: ^/()(.*)
+        substitution: /\2
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: retail-web-request-buffer
+  namespace: retail-prod
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: retail-web
+  requestBuffer:
+    limit: 25Mi
