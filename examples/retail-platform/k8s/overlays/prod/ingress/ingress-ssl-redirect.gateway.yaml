@@ -1,0 +1,63 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: envoy-gateway
+  namespace: default
+spec:
+  gatewayClassName: envoy-gateway
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      hostname: redirect.example.com
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: redirect.example.com
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: redirect-example-tls
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ssl-redirect-ingress
+  namespace: default
+spec:
+  parentRefs:
+    - name: envoy-gateway
+      sectionName: https
+  hostnames:
+    - redirect.example.com
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: storefront
+          port: 80
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ssl-redirect-ingress-https-redirect
+  namespace: default
+spec:
+  parentRefs:
+    - name: envoy-gateway
+      sectionName: http
+  hostnames:
+    - redirect.example.com
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301
