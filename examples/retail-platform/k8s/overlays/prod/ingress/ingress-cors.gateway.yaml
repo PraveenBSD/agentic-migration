@@ -34,8 +34,6 @@ spec:
     allowMethods:
       - GET
       - POST
-      - PUT
-      - OPTIONS
     allowHeaders:
       - Authorization
       - Content-Type
